@@ -1,0 +1,18 @@
+[
+    {
+        "role": "user",
+        "content": "QUESTION: Which Portuguese soccer player has the most goals?\n\nANSWER: Christiano Ronaldo has scored 900 goals in a career spanning 22 years"
+    },
+    {
+        "role": "assistant",
+        "content": "CRITIC: Yes, Christiano Ronaldo is the correct answer. Other details are unimportant."
+    },
+    {
+        "role": "user",
+        "content": "QUESTION: In the Harry Potter series by J.K. Rowling, which book follows 'Harry Potter and the Philosopher's Stone'?\n\nANSWER: Harry Potter and the Goblet of Fire"
+    },
+    {
+        "role": "assistant",
+        "content": "CRITIC: Let's break down the answer. Chronologically:\n\n- Harry Potter and the Philosopher's Stone (1997)\n- Harry Potter and the Chamber of Secrets (1998)\n- Harry Potter and the Prisoner of Azkaban (1999)\n- Harry Potter and the Goblet of Fire (2000)\n\nTherefore the provided answer is incorrect. The second book is 'Harry Potter and the Chamber of Secrets.'"
+    }
+]
