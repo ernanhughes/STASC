@@ -9,6 +9,9 @@ from star_prompts import star_rationale_generation_prompt, star_rationalization_
 from eval_utils import has_answer
 from transformers import AutoTokenizer
 from prompt_schemas import load_few_shot_prompts
+import os
+import yaml
+import subprocess
 
 # TODO:
 # add proper tuning pipeline
@@ -16,6 +19,32 @@ from prompt_schemas import load_few_shot_prompts
 # setup config
 # add files with few shot
 
+
+def call_fine_tune(
+    config_yaml_path: str,
+    accelerate_config_path: str
+):
+    """
+    Calls fine_tune.py with the specified YAML config.
+
+    Args:
+        config_yaml_path (str): Path to your config.yaml file.
+        accelerate_config_path (str, optional): Path to accelerate_config.yaml.
+            If None, uses the default accelerate config or single-GPU mode.
+    """
+
+    # Basic command: "accelerate launch fine_tune.py --config_path config_yaml_path"
+    cmd = ["accelerate", "launch"]
+
+    cmd += ["--config_file", accelerate_config_path]
+
+    # Add script + arguments
+    cmd += ["fine_tune.py", "--config_path", config_yaml_path]
+
+    print("Running command:", " ".join(cmd))
+
+    # Actually run the command
+    subprocess.run(cmd, check=True)
 
 def split_rationale_and_final_answer(generated_text: str):
     """
@@ -180,6 +209,9 @@ def perform_generation(data, model, prompt_func, sampling_params, id_key, output
 def main():
     parser = argparse.ArgumentParser(description="Run the STaR Algorithm")
     parser.add_argument("--config", type=str, required=True, help="Path to the YAML config file.")
+    parser.add_argument("--ft_config", type=str, required=True, help="Path to the Fine-Tuning YAML config file.")
+    parser.add_argument("--accelerate_config_path", type=str, required=True, help="Path to the accelerate YAML config file.")
+
     args = parser.parse_args()
 
     # Load configuration
@@ -188,6 +220,13 @@ def main():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     config_dict = load_config(config_path)
     config = extract_parameters(config_dict)
+
+    ft_config = load_config(args.ft_config)
+
+    # create a path to save models
+    os.mkdir( f"{config.cache_dir}STaR") 
+    model_checkpoint_dir = f"{config.cache_dir}STaR/{config.run_name}"
+
 
     # start from initial model
     generation_model_path = config.model_path
@@ -274,7 +313,7 @@ def main():
             final_ans_col_name=f"star_rationalization_answer_{iteration}"
         )
 
-        fine_tuning_data = flatten_correct_rationales(
+        fine_tuning_data_path = flatten_correct_rationales(
             dataset=train_data,
             question_col=config.question_col,
             reference_col=config.gold_col,
@@ -285,11 +324,20 @@ def main():
             id_col=config.id_col
         )
 
+        # Modify something in memory
+        ft_config["data"]["dataset_name"] = fine_tuning_data_path
+        generation_model_path = f"{model_checkpoint_dir}_{iteration}"
+        ft_config["training"]["output_dir"] = generation_model_path
+        ft_config['training']['run_name'] = f"{config.run_name}_{iteration}"
+
+        updated_config_path = "configs/temp_STaR_ft_config.yaml"
+        with open(updated_config_path, "w") as f:
+            yaml.dump(config_dict, f, sort_keys=False)
 
         # (7) Fine-tune on the combined correct solutions
-        generation_model_path = fine_tune_model(
-            combined_data,
-            config,
+        call_fine_tune(
+            config_yaml_path=updated_config_path,
+            accelerate_config_path=args.accelerate_config_path
         )
 
         # End of iteration; M_{n} is now your updated model
