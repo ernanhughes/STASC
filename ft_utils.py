@@ -5,43 +5,62 @@ from itertools import chain
 
 
 def load_hf_datasets(data_args):
-    # Load the dataset
+    """
+    Loads or creates a dataset from either disk or Hugging Face Hub.
+    Optionally creates a validation split if `validation_split_percentage` > 0
+    and a validation set does not already exist.
+    Also subsamples the dataset to `dataset_percentage` if < 100.
+    """
+
+    # 1. Load the dataset (either from disk or from HF Hub)
     if data_args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
         if data_args.load_from_disk:
-            raw_datasets = load_from_disk(
-                data_args.dataset_name
-            )
+            raw_datasets = load_from_disk(data_args.dataset_name)
         else:
             raw_datasets = load_dataset(
                 data_args.dataset_name,
                 data_args.dataset_config_name,
                 streaming=data_args.streaming,
             )
-        if "validation" not in raw_datasets.keys():
-            raw_datasets["validation"] = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                split=f"train[:{data_args.validation_split_percentage}%]",
-                streaming=data_args.streaming,
-            )
-            raw_datasets["train"] = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                split=f"train[{data_args.validation_split_percentage}%:]",
-                streaming=data_args.streaming,
-            )
+    else:
+        raise ValueError("`data_args.dataset_name` must be provided.")
 
-    if data_args.dataset_percentage < 100:
-        dataset_frac = data_args.dataset_percentage / 100
-        dataset_parts = raw_datasets["train"].train_test_split(train_size=dataset_frac, seed=data_args.seed)
-        raw_datasets["train"] = dataset_parts["train"]
-        dataset_parts = raw_datasets["validation"].train_test_split(
-            test_size=dataset_frac, seed=data_args.seed
+    # 2. Optionally create a validation split if percentage > 0 and doesn't exist
+    if data_args.validation_split_percentage > 0 and "validation" not in raw_datasets:
+        split_pct = data_args.validation_split_percentage
+        raw_datasets["validation"] = load_dataset(
+            data_args.dataset_name,
+            data_args.dataset_config_name,
+            split=f"train[:{split_pct}%]",
+            streaming=data_args.streaming,
         )
-        raw_datasets["validation"] = dataset_parts["test"]
+        raw_datasets["train"] = load_dataset(
+            data_args.dataset_name,
+            data_args.dataset_config_name,
+            split=f"train[{split_pct}%:]",
+            streaming=data_args.streaming,
+        )
+
+    # 3. Optionally downsample the dataset to `data_args.dataset_percentage`
+    if data_args.dataset_percentage < 100:
+        dataset_frac = data_args.dataset_percentage / 100.0
+        # Subsample train
+        dataset_parts = raw_datasets["train"].train_test_split(
+            train_size=dataset_frac,
+            seed=data_args.seed
+        )
+        raw_datasets["train"] = dataset_parts["train"]
+
+        # Subsample validation only if it exists
+        if "validation" in raw_datasets:
+            dataset_parts = raw_datasets["validation"].train_test_split(
+                test_size=dataset_frac,
+                seed=data_args.seed
+            )
+            raw_datasets["validation"] = dataset_parts["test"]
 
     return raw_datasets
+
 
 
 def tokenize_datasets(data_args, raw_datasets, tokenizer):
