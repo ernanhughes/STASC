@@ -14,12 +14,13 @@ from transformers import (
 )
 
 from peft import get_peft_model, TaskType, LoraConfig
-from generation_utils import load_yaml_config
+from generation_utils import load_config
 from ft_utils import (
     load_hf_datasets,
     encode_with_messages_format,
     encode_with_prompt_completion_format,
 )
+import os
 
 IGNORE_INDEX = -100
 
@@ -121,11 +122,6 @@ def build_training_args(training_cfg: dict) -> TrainingArguments:
         report_to=training_cfg.get("report_to", ["none"]),
         run_name=training_cfg.get("run_name", "experiment"),
         remove_unused_columns=True,
-
-        # FSDP options (from huggingface docs)
-        # fsdp=training_cfg.get("fsdp", None),  # e.g. "full_shard auto_wrap"
-        # fsdp_min_num_params=training_cfg.get("fsdp_min_num_params", 0),
-        # You can also include more advanced FSDP options via fsdp_config if needed.
     )
 
 
@@ -159,6 +155,8 @@ def run_train(
         dtype = torch.bfloat16
 
     # 2) Load model
+    print(f"[INFO] Loading Model at {model_args.model_name_or_path}")
+
     model = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -168,6 +166,7 @@ def run_train(
 
     # 3) Potentially wrap model in LoRA
     if lora_args.use_lora:
+        print(f"[INFO] Adding LoRA with R {lora_args.lora_rank}")
         lora_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             inference_mode=False,
@@ -202,6 +201,7 @@ def run_train(
         model.resize_token_embeddings(len(tokenizer))
 
     # 5) Load dataset
+    print(f"[INFO] Loading Dataset from at {data_args.dataset_name}")
     raw_datasets = load_hf_datasets(data_args)
 
     # 6) Tokenize dataset
@@ -259,7 +259,8 @@ def run_train(
 
     # 9) Train
     trainer.train()
-    trainer.save_model() 
+    trainer.save_model(training_args.output_dir)
+
 
 
 # ---------------------------
@@ -271,7 +272,7 @@ def main():
     args = parser.parse_args()
 
     # 1) Load YAML config
-    config_dict = load_yaml_config(args.config_path)
+    config_dict = load_config(args.config_path)
 
     model_cfg = config_dict.get("model", {})
     data_cfg = config_dict.get("data", {})
@@ -283,6 +284,10 @@ def main():
     data_args = build_data_args(data_cfg)
     training_args = build_training_args(training_cfg)
     lora_args = build_lora_args(peft_cfg)
+
+    os.environ["WANDB_PROJECT"] = config_dict['training']['project_name']
+
+
 
     # 3) Run training
     run_train(model_args, data_args, training_args, lora_args)
