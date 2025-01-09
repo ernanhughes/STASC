@@ -2,7 +2,7 @@
 # Model Configuration
 model_path: "luezzka/Llama-3.2-1B-Instruct"
 cache_dir: "/home/data/v.moskvoretskii/cache/"
-gpu_memory_utilization: 0.8        # GPU memory utilization (0.0 to 1.0)
+gpu_memory_utilization: 0.9       # GPU memory utilization (0.0 to 1.0)
 enforce_eager: True                # Whether to enforce eager execution
 max_model_len: 12196                # Maximum model length
 
@@ -22,4 +22,4 @@ number_output_seq: 1                 # Number of sequences to generate per promp
 # Sampling Parameters
 temperature: 0.6                     # Sampling temperature
 top_p: 0.9                           # Top-p (nucleus) sampling
-max_tokens: 512                      # Maximum number of tokens to generate
+max_tokens: 1024                      # Maximum number of tokens to generate
