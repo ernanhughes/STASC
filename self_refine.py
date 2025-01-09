@@ -7,6 +7,7 @@ from generation_utils import generate_for_dataset, store_generation_results, loa
 from self_refine_prompts import gather_full_conversation, initial_generation_prompt, refinement_prompt, feedback_prompt
 from eval_utils import has_answer
 from vllm import LLM, SamplingParams
+from utils import KM
 
 from transformers import AutoTokenizer
 from prompt_schemas import load_few_shot_prompts
@@ -153,6 +154,9 @@ def main():
         id_key=config['id_col'],
         output_col=f"self_refine_initial_generation"
     )
+    acc = KM(train_data, target_col='self_refine_initial_generation', gt_col=config['gold_col'])
+    logger.info(f"Initial Accuracy {acc}")
+
 
 
     # Outer loop: for n in 1...N
@@ -180,9 +184,12 @@ def main():
             output_col=f"self_refine_refinement_{iteration}"
         )
 
+        acc = KM(train_data, target_col=f'self_refine_refinement_{iteration}', gt_col=config['gold_col'])
+        logger.info(f"Refinement Accuracy {acc} at iteration {iteration + 1}/{config['num_refine_iterations']}")
 
         # End of iteration; M_{n} is now your updated model
 
+    train_data.save_to_disk('self_refine_test_ds')
     logger.info("Self-Refine algorithm completed.")
 
 if __name__ == "__main__":
