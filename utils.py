@@ -71,6 +71,8 @@ def KM(ds, target_col, gt_col):
     for sample in ds:
         corr_ans = sample[gt_col]
         model_ans = sample[target_col]
+        if isinstance(model_ans, list):
+            model_ans = model_ans[0]
         is_corr = has_answer(corr_ans, model_ans)
         total_match += is_corr
     return total_match / len(ds)
