@@ -143,6 +143,7 @@ def refinement_prompt(
     instructions = (
         "Below is the entire conversation so far. Focus on the latest feedback. "
         "Update or correct the most recent assistant answer as necessary to produce a refined answer."
+        "Output only the refined answer"
     )
 
     # 3) Gather the entire conversation
@@ -195,7 +196,7 @@ def feedback_prompt(
     # 2) The "instructions" for how to provide feedback
     instructions = (
         "Below is the entire conversation so far, including the user’s question, all previous generations, "
-        "feedback, and refinements. Now provide a new piece of feedback, focusing "
+        "feedback, and refinements. Now think step-by-step and provide a new piece of feedback, focusing "
         "on the most recent assistant answer correctness."
     )
 
