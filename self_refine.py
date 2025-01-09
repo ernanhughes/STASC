@@ -20,10 +20,8 @@ import logging
 
 # TODO:
 # break when found "it is correct", add this to the feedback
-# add evaluation
 # track length
 # Add CoT Maybe
-# Add explicit Feedback
 # add self-consistency
 
 
@@ -33,7 +31,7 @@ def setup_logger(run_name: str, log_file="star.log"):
     Sets up a logger named "star_logger_{run_name}" that writes both 
     to the console and to `log_file`.
     """
-    logger_name = f"star_logger_{run_name}"    # e.g. "star_logger_test_0"
+    logger_name = f"self_refine_logger_{run_name}"
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.INFO)
 
