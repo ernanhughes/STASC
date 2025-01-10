@@ -81,7 +81,7 @@ def main():
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     config = load_config(config_path)
-    logger = setup_logger(config['run_name'], log_file=f"self_refine_{config['run_name']}.log")
+    logger = setup_logger(config['run_name'], log_file=f"logs/self_refine_{config['run_name']}.log")
 
     # Load dataset
     dataset = datasets.load_from_disk(str(config['data_path']))
@@ -141,7 +141,8 @@ def main():
         temperature=config['temperature'],
         top_p=config['top_p'],
         max_tokens=config['max_tokens'],
-        n=config['number_output_seq']
+        n=config['number_output_seq'],
+        seed=config['random_seed']
     )
 
     train_data = perform_generation(

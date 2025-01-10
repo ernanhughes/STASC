@@ -7,17 +7,18 @@ enforce_eager: True                # Whether to enforce eager execution
 max_model_len: 12196                # Maximum model length
 
 # Dataset Configuration
-data_path: "data/datasets/s_nq"
+data_path: "data/datasets/s_trivia"
 id_col: "question_id"                        # Unique identifier column in the dataset
 question_col: "question_text"            # Column containing the question text
 gold_col: "reference"
 
-num_refine_iterations: 3
-run_name: "test"
+num_refine_iterations: 5
+run_name: "trivia_seed_1_llama-1b_5"
 
 # Generation Configuration
 few_shot_dir: "few_shots"            # Directory containing few-shot JSON files
 number_output_seq: 1                 # Number of sequences to generate per prompt
+random_seed: 1
 
 # Sampling Parameters
 temperature: 0.6                     # Sampling temperature
