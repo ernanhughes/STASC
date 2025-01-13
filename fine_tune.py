@@ -1,3 +1,8 @@
+import sys
+
+sys.path.append('../')
+sys.path.append('./')
+
 import argparse
 import yaml
 import torch
@@ -14,8 +19,8 @@ from transformers import (
 )
 
 from peft import get_peft_model, TaskType, LoraConfig
-from generation_utils import load_config
-from ft_utils import (
+from utils.generation_utils import load_config
+from utils.ft_utils import (
     load_hf_datasets,
     encode_with_messages_format,
     encode_with_prompt_completion_format,
@@ -286,6 +291,8 @@ def main():
     lora_args = build_lora_args(peft_cfg)
 
     os.environ["WANDB_PROJECT"] = config_dict['training']['project_name']
+    os.environ["WANDB_DIR"] = config_dict['model']['cache_dir']
+    os.environ["WANDB_CACHE_DIR"] = config_dict['model']['cache_dir']
 
 
 

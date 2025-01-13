@@ -19,7 +19,7 @@ data:
 
 training:
   output_dir: "./my-finetuned-llama-fsdp" # STaR overwrites it
-  learning_rate: 1.0e-4
+  learning_rate: 1.0e-5
   num_train_epochs: 1
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 2

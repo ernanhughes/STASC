@@ -7,7 +7,7 @@ from generation_utils import generate_for_dataset, store_generation_results, loa
 from self_refine_prompts import gather_full_conversation, initial_generation_prompt, refinement_prompt, feedback_prompt
 from eval_utils import has_answer
 from vllm import LLM, SamplingParams
-from utils import KM
+from utils.utils import KM
 
 from transformers import AutoTokenizer
 from prompt_schemas import load_few_shot_prompts
