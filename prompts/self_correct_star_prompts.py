@@ -24,20 +24,20 @@ def star_correction_initial_generation_prompt(
     # 1) System role: instructions about generating a chain-of-thought
     system_prompt = (
         "You are a helpful reasoning assistant. "
-        "Please reason through the question step by step before giving a final answer."
+        "Please reason through the question step by step very shortly before giving a final answer."
     )
 
     # 2) High-level instructions for the user block
     #    Feel free to rephrase for your domain or tasks
     instructions = (
-        "Generate a short chain-of-thought rationale, and then provide the final answer.\n"
+        "Generate a short chain-of-thought rationale very shortly, and then provide the final answer.\n"
         "Step-by-step reasoning:\n"
         "Final Answer:\n"
     )
 
     # 3) The user question itself
     question_text = sample.get(question_col, "")
-    user_question = f"Question:\n{question_text}\n\nReason step by step, then conclude with the answer."
+    user_question = f"Question:\n{question_text}\n\nReason step by step very shortly, then conclude with the answer."
 
     # 4) Build the message sequence
     messages = compose_chat_messages(
