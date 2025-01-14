@@ -24,6 +24,7 @@ from utils.ft_utils import (
     load_hf_datasets,
     encode_with_messages_format,
     encode_with_prompt_completion_format,
+    encode_with_messages_format_chat_template
 )
 import os
 
@@ -202,8 +203,13 @@ def run_train(
 
     # Ensure PAD token exists
     if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens({"pad_token": "<pad>"})
-        model.resize_token_embeddings(len(tokenizer))
+        # for llama model starting from 3 version
+        if 'llama' in model_args.model_name_or_path.lower():
+            tokenizer.pad_token_id = 128004
+            tokenizer.pad_token = "<|finetune_right_pad_id|>"
+        else:
+            tokenizer.add_special_tokens({"pad_token": "<pad>"})
+            model.resize_token_embeddings(len(tokenizer))
 
     # 5) Load dataset
     print(f"[INFO] Loading Dataset from at {data_args.dataset_name}")
@@ -216,8 +222,8 @@ def run_train(
             ex, tokenizer, max_seq_length=data_args.block_size
         )
     elif "messages" in train_cols:
-        encode_function = lambda ex: encode_with_messages_format(
-            ex, tokenizer, max_seq_length=data_args.block_size
+        encode_function = lambda ex: encode_with_messages_format_chat_template(
+            ex, tokenizer
         )
     else:
         raise ValueError(

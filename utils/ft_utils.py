@@ -211,3 +211,37 @@ def encode_with_messages_format(example, tokenizer, max_seq_length):
         'labels': labels.flatten(),
         'attention_mask': attention_mask.flatten(),
     }
+
+def encode_with_messages_format_chat_template(example, tokenizer):
+    '''
+    Here we assume each example has a 'messages' field Each message is a dict with 'role' and 'content' fields.
+    We concatenate all messages with the roles as delimiters and tokenize them together.
+    '''
+    messages = example['messages']
+    if len(messages) == 0:
+        raise ValueError('messages field is empty.')
+    
+
+    input_ids = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=False,
+        truncate=True,
+        return_tensors='pt'
+    ).squeeze(0)
+
+    eos_indices = (input_ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
+
+    # Determine the second-to-last EOS token index
+    pre_last_eos_idx = eos_indices[-2]
+
+    # Generate labels: -100 for tokens before pre-last EOS, rest as input_ids
+    labels = torch.full_like(input_ids, fill_value=-100)
+    labels[pre_last_eos_idx:] = input_ids[pre_last_eos_idx:]
+
+    attention_mask = torch.ones_like(input_ids)
+    return {
+        'input_ids': input_ids,
+        'labels': labels,
+        'attention_mask': attention_mask,
+    }
