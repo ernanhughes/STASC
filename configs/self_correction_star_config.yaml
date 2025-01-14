@@ -14,8 +14,9 @@ gold_col: "reference"
 
 num_star_iterations: 2
 run_name: "test"
-initial_answer_with_new_model: False # y^1 with M_0 or M_{n-1}
-only_better_correction: True # D_STaR or D_STaR+
+initial_answer_with_new_model: True # y^1 with M_0 or M_{n-1}
+only_better_correction: False # D_STaR or D_STaR+
+train_from_initial_model: False # train M_0 or M_n-1
 
 # Generation Configuration
 few_shot_dir: "few_shots"            # Directory containing few-shot JSON files

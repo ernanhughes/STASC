@@ -213,6 +213,9 @@ def main():
             logger=logger
         )
 
+        if not config['train_from_initial_model']:
+            ft_config['model']['model_name_or_path'] = generation_model_path
+
         # End of iteration; M_{n} is now your updated model
 
     logger.info("[INFO] Self-Correction STaR algorithm completed.")
