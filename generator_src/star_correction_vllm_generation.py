@@ -114,7 +114,7 @@ def collect_improving_corrections(
         "messages": new_messages,
     }
 
-    print(f'[INFO] Filtered {len(flattened_data)} Corrections')
+    print(f'[INFO] Filtered {len(new_ids)} Corrections')
 
 
     # Convert to a new HF Dataset
