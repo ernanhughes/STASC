@@ -81,24 +81,27 @@ def star_correction_prompt(
 
     # 3) The user block includes both the question and the correct answer (as the 'hint')
     question_text = sample.get(question_col, "")
-    initial_answer = sample[initial_answer_col][0]
-    user_question = (
-        f"Question:\n{question_text}\n\n"
-        f"Initial Answer: {initial_answer}\n\n"
-        "Write a correction if the initial answer is incorrect."
-    )
 
-    # 4) Build the message sequence
-    messages = compose_chat_messages(
-        system_prompt=system_prompt,
-        instructions=instructions,
-        user_question=user_question,
-        few_shot_prompts=few_shot_prompts  # Could also omit or add exemplars
-    )
+    all_correction_prompts = []
+    for initial_answer in sample[initial_answer_col]:
+        user_question = (
+            f"Question:\n{question_text}\n\n"
+            f"Initial Answer: {initial_answer}\n\n"
+            "Write a correction if the initial answer is incorrect."
+        )
 
-    # 5) Return the final merged prompt
-    return tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True
-    )
+        # 4) Build the message sequence
+        messages = compose_chat_messages(
+            system_prompt=system_prompt,
+            instructions=instructions,
+            user_question=user_question,
+            few_shot_prompts=few_shot_prompts  # Could also omit or add exemplars
+        )
+
+        all_correction_prompts.append(tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        ))
+
+    return all_correction_prompts

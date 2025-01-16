@@ -12,15 +12,16 @@ id_col: "question_id"                        # Unique identifier column in the d
 question_col: "question_text"            # Column containing the question text
 gold_col: "reference"
 
-num_star_iterations: 2
+num_star_iterations: 1
 run_name: "test"
 initial_answer_with_new_model: True # y^1 with M_0 or M_{n-1}
-only_better_correction: False # D_STaR or D_STaR+
-train_from_initial_model: False # train M_0 or M_n-1
+only_better_correction: True # D_STaR or D_STaR+
+train_from_initial_model: True # train M_0 or M_n-1
 
 # Generation Configuration
 few_shot_dir: "few_shots"            # Directory containing few-shot JSON files
-number_output_seq: 1                 # Number of sequences to generate per prompt
+number_output_initial_generations: 3                
+number_output_corrections: 3
 
 # Sampling Parameters
 temperature: 0.6                     # Sampling temperature

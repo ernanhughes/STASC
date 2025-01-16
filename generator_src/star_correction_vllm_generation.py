@@ -17,7 +17,7 @@ from utils.generation_utils import generate_for_dataset, store_generation_result
 from prompts.self_correct_star_prompts import star_correction_initial_generation_prompt, star_correction_prompt 
 from prompts.prompt_schemas import load_few_shot_prompts
 from utils.eval_utils import has_answer
-from utils.utils import KM
+from utils.utils import KM, flatten_predictions
 from transformers import AutoTokenizer
 import yaml
 import subprocess
@@ -69,39 +69,37 @@ def collect_improving_corrections(
         reference = row[reference_col]
 
         # 1) Retrieve generation answers/rationales
-        init_answers = row[inital_answer_col][0]
+        for init_answer in row[inital_answer_col]:
+            for correction in flatten_predictions(row[correction_col]):
 
-        # 2) Retrieve corrections
-        corr_answers = row[correction_col][0]
+                # 3) Check if there is an improvement
+                init_is_correct = has_answer(reference, init_answer)
+                correction_is_correct = has_answer(reference, correction)
 
-        # 3) Check if there is an improvement
-        init_is_correct = has_answer(reference, init_answers)
-        correction_is_correct = has_answer(reference, corr_answers)
+                if strict_improvement:
+                    use_sample = correction_is_correct > init_is_correct
+                else:
+                    use_sample = init_is_correct and correction_is_correct
 
-        if strict_improvement:
-            use_sample = correction_is_correct > init_is_correct
-        else:
-            use_sample = init_is_correct and correction_is_correct
+                if use_sample:
+                    new_ids.append(f"{row_id}_gen")
+                    new_questions.append(question)
+                    new_refs.append(reference)
+                    new_answers.append([init_answer])
+                    new_corrections.append([correction])
 
-        if use_sample:
-            new_ids.append(f"{row_id}_gen")
-            new_questions.append(question)
-            new_refs.append(reference)
-            new_answers.append([init_answers])
-            new_corrections.append([corr_answers])
+                    user_question = f"Question:\n{question}\n\nReason step by step, then conclude with the answer."
 
-            user_question = f"Question:\n{question}\n\nReason step by step, then conclude with the answer."
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": instructions},
+                        {"role": "user", "content": user_question},
+                        {"role": "user", "content": init_answer},
+                        {"role": "user", "content": correction_prompt},
+                        {"role": "assistant", "content": correction}
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": instructions},
-                {"role": "user", "content": user_question},
-                {"role": "user", "content": init_answers},
-                {"role": "user", "content": correction_prompt},
-                {"role": "assistant", "content": corr_answers}
-
-            ]
-            new_messages.append(messages)
+                    ]
+                    new_messages.append(messages)
 
 
     # Build the new dictionary
@@ -202,13 +200,14 @@ def main():
         temperature=config['temperature'],
         top_p=config['top_p'],
         max_tokens=config['max_tokens'],
-        n=config['number_output_seq']
+        n=1
     )
 
     # if generating with initial model and now generating initial answers
     if (not config['initial_answer_with_new_model']) and (args.initial_generation):
 
         print(f"[INFO] Starting generation of initial answers at {iteration + 1}/{config['num_star_iterations']}")
+        sampling_params.n = config['number_output_initial_generations']
         train_data = perform_generation(
             data=train_data,
             model=model,
@@ -218,6 +217,7 @@ def main():
             output_col='star_correction_initial_generation'
         )
 
+        sampling_params.n = 1
         test_data = perform_generation(
             data=test_data,
             model=model,
@@ -245,6 +245,7 @@ def main():
 
         print(f"[INFO] Starting generation of corrections at {iteration + 1}/{config['num_star_iterations']}")
 
+        sampling_params.n = config['number_output_corrections']
         train_data = perform_generation(
             data=train_data,
             model=model,
@@ -254,6 +255,7 @@ def main():
             output_col=f'star_correction_{iteration}'
         )
 
+        sampling_params.n = 1
         test_data = perform_generation(
             data=test_data,
             model=model,
@@ -287,6 +289,7 @@ def main():
 
     print(f"[INFO] Starting generation of initial answers at {iteration + 1}/{config['num_star_iterations']}")
 
+    sampling_params.n = config['number_output_initial_generations']
     train_data = perform_generation(
         data=train_data,
         model=model,
@@ -295,6 +298,8 @@ def main():
         id_key=config['id_col'],
         output_col='star_correction_initial_generation'
     )
+
+    sampling_params.n = 1
     test_data = perform_generation(
         data=test_data,
         model=model,
@@ -311,6 +316,7 @@ def main():
 
     print(f"[INFO] Starting generation of corrections at {iteration + 1}/{config['num_star_iterations']}")
 
+    sampling_params.n = config['number_output_corrections']
     train_data = perform_generation(
             data=train_data,
             model=model,
@@ -319,6 +325,8 @@ def main():
             id_key=config['id_col'],
             output_col=f'star_correction_{iteration}'
     )
+
+    sampling_params.n = 1
     test_data = perform_generation(
             data=test_data,
             model=model,
