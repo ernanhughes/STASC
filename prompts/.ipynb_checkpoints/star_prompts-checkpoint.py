@@ -24,7 +24,7 @@ def star_rationale_generation_prompt(
 
     # 1) System role: instructions about generating a chain-of-thought
     system_prompt = (
-        "You are a helpful reasoning assistant in general domain question answering. "
+        "You are a helpful reasoning assistant. "
         "Please reason through the question step by step before giving a final answer."
     )
 
