@@ -181,7 +181,7 @@ def generate_for_dataset(model, data, prompt_function, sampling_params, id_key="
     all_prompts = flatten_prompts(grouped_data)
 
     # 3) Generate in one batch call
-    generation_results = model.generate(all_prompts, sampling_params, use_tqdm=False)
+    generation_results = model.generate(all_prompts, sampling_params, use_tqdm=True)
 
     # 4) Unflatten the generation results back
     final_data = unflatten_results(grouped_data, generation_results)

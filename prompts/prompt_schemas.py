@@ -54,7 +54,7 @@ def compose_chat_messages(
     
     # 1) System prompt
     if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": system_prompt})
     
     # 2) Instructions
     if instructions:
