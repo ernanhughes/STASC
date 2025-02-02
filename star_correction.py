@@ -9,11 +9,7 @@ import logging
 
 
 # TODO:
-# debug
 # maybe need to truncate correct rationales number
-# add files with few shot
-# add evaluation
-# write to logger
 
 
 
