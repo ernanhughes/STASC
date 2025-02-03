@@ -2,13 +2,19 @@
 
 This repository contains code for paper ...
 
-## Running STaSC
+## 🚀 Running STaSC
 
-To reproduce the experiments and run any version of the algorithm described in paper. To run the algorithm you need to run the following with the specified configs. the configs description will be below.
+To reproduce the experiments and run different versions of the **Self-Taught Self-Correction (STaSC) algorithm** as described in the paper, use the following command with the specified configuration files:
 
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python star_correction.py \
+  --config configs/self_correction_star_config.yaml \
+  --ft_config configs/fine_tune.yaml \
+  --accelerate_config_path configs/accelerate_config.yaml
 ```
- CUDA_VISIBLE_DEVICES=0,1 python star_correction.py --config configs/self_correction_star_config.yaml --ft_config configs/fine_tune.yaml --accelerate_config_path configs/accelerate_config.yaml 
-```
+
+The `self_correction_star_config.yaml* file, which defines the key parameters for self-correction, is detailed in [Section: Self-Correction Configuration](#self-correction-configuration).
+
 
 ## Self Correction Configuration
 
