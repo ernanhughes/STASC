@@ -14,6 +14,7 @@ CUDA_VISIBLE_DEVICES=0,1 python star_correction.py \
 ```
 
 The `self_correction_star_config.yaml* file, which defines the key parameters for self-correction, is detailed in [Section: Self-Correction Configuration](#self-correction-configuration).
+
 The `fine_tune.yaml` file, which defines the key parameters for fine-tuning, is detailed in [Section: Fine-Tuning Configuration](#fine-tuning-configuration).
 
 
