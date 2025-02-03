@@ -13,9 +13,12 @@ CUDA_VISIBLE_DEVICES=0,1 python star_correction.py \
   --accelerate_config_path configs/accelerate_config.yaml
 ```
 
-The `self_correction_star_config.yaml* file, which defines the key parameters for self-correction, is detailed in [Section: Self-Correction Configuration](#self-correction-configuration).
+The `self_correction_star_config.yaml` file, which defines the key parameters for self-correction, is detailed in [Section: Self-Correction Configuration](#self-correction-configuration).
 
 The `fine_tune.yaml` file, which defines the key parameters for fine-tuning, is detailed in [Section: Fine-Tuning Configuration](#fine-tuning-configuration).
+
+The `accelerate_config.yaml` file defines the parameters for distributed training. Please see [Accelerate Documentation](https://huggingface.co/docs/accelerate/index)
+
 
 
 ## Self Correction Configuration
