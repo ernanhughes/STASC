@@ -233,7 +233,7 @@ def encode_with_messages_format_chat_template(example, tokenizer):
     eos_indices = (input_ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
 
     # Determine the second-to-last EOS token index
-    pre_last_eos_idx = eos_indices[-2]
+    pre_last_eos_idx = eos_indices[-2] if len(eos_indices) > 1 else eos_indices[0]
 
     # Generate labels: -100 for tokens before pre-last EOS, rest as input_ids
     labels = torch.full_like(input_ids, fill_value=-100)
