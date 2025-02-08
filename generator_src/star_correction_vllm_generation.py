@@ -281,7 +281,7 @@ def main():
             output_path=args.ft_dataset_path,
             strict_improvement=config['only_better_correction']
         )
-
+        test_data.save_to_disk(f"{args.ft_dataset_path}_test")
         return
     
 
@@ -352,6 +352,8 @@ def main():
         output_path=args.ft_dataset_path,
         strict_improvement=config['only_better_correction']
     )
+    
+    test_data.save_to_disk(f"{args.ft_dataset_path}_test")
 
 if __name__ == '__main__':
     main()
