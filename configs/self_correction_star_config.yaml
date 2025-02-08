@@ -1,6 +1,6 @@
 
 # Model Configuration
-model_path: "luezzka/Llama-3.2-1B-Instruct"
+model_path: "Qwen/Qwen2.5-1.5B-Instruct"
 cache_dir: "/home/data/v.moskvoretskii/cache/"
 gpu_memory_utilization: 0.9        # GPU memory utilization (0.0 to 1.0)
 enforce_eager: True                # Whether to enforce eager execution
@@ -13,15 +13,15 @@ question_col: "question_text"            # Column containing the question text
 gold_col: "reference"
 
 num_star_iterations: 1
-run_name: "test"
+run_name: "test_qwen" # "qwen_1.5b_N_init10_N_corr_10_all-True"
 initial_answer_with_new_model: True # y^1 with M_0 or M_{n-1}
 only_better_correction: True # D_STaR or D_STaR+
 train_from_initial_model: True # train M_0 or M_n-1
 
 # Generation Configuration
 few_shot_dir: "few_shots"            # Directory containing few-shot JSON files
-number_output_initial_generations: 3                
-number_output_corrections: 3
+number_output_initial_generations: 1                
+number_output_corrections: 1
 
 # Sampling Parameters
 temperature: 0.6                     # Sampling temperature
