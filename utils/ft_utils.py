@@ -230,14 +230,28 @@ def encode_with_messages_format_chat_template(example, tokenizer):
         return_tensors='pt'
     ).squeeze(0)
 
-    eos_indices = (input_ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
+    if 'qwen' in tokenizer.name_or_path.lower():
+        model_name = 'qwen'
+        special_token = 151644
+        # qwen special token is <im_start>, however it also appends assistant and \n
+    if 'phi' in tokenizer.name_or_path.lower():
+        model_name = 'phi'
+        # phi special token is <assistant>
+        special_token = 32001
 
-    # Determine the second-to-last EOS token index
-    pre_last_eos_idx = eos_indices[-2] if len(eos_indices) > 1 else eos_indices[0]
+    # find the special tokens for starting assistance generation
+    special_assistant_start_indices = (input_ids == special_token).nonzero(as_tuple=True)[0]
+    # take last one and + 1 for indexing in python
+    last_assistant = special_assistant_start_indices[-1] + 1
+
+    
+    if model_name == 'qwen':
+        # so we would not count 2 additional tokens (assistant, \n, as they are appended at the beggining and is part of template)
+        last_assistant += 2
 
     # Generate labels: -100 for tokens before pre-last EOS, rest as input_ids
     labels = torch.full_like(input_ids, fill_value=-100)
-    labels[pre_last_eos_idx:] = input_ids[pre_last_eos_idx:]
+    labels[last_assistant:] = input_ids[last_assistant:]
 
     attention_mask = torch.ones_like(input_ids)
     return {
