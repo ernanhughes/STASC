@@ -8,11 +8,6 @@ import threading
 import logging
 
 
-# TODO:
-# maybe need to truncate correct rationales number
-
-
-
 def _stream_subprocess_output(pipe, log_func):
     """
     Reads lines from a subprocess pipe (stdout or stderr) and calls log_func(line) in real time.
@@ -51,36 +46,48 @@ def run_subprocess_in_real_time(cmd, logger):
 
     return process.returncode
 
-def setup_logger(run_name: str, log_file="star.log"):
+class InfoOnlyFilter(logging.Filter):
+    """A filter to allow only messages containing '[INFO]' in them."""
+    def filter(self, record):
+        return "[INFO]" in record.getMessage()
+
+def setup_logger(run_name: str, log_all="logs/all_logs.log", log_info="logs/info_logs.log"):
     """
-    Sets up a logger named "star_logger_{run_name}" that writes both 
-    to the console and to `log_file`.
+    Sets up a logger that writes:
+    - All logs to `log_all`
+    - Only logs explicitly containing `[INFO]` to `log_info`
+    - Logs to console
     """
-    logger_name = f"self_correct_STaR_logger_{run_name}"    # e.g. "star_logger_test_0"
+    logger_name = f"self_correct_STaR_logger_{run_name}"  
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.INFO)
 
     # Avoid adding multiple handlers if already set
     if not logger.handlers:
-        # 1) Console handler
+        log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        
+        # Console handler
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
-        console_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        console_handler.setFormatter(console_formatter)
+        console_handler.setFormatter(logging.Formatter(log_format))
 
-        # 2) File handler
-        file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
-        file_handler.setLevel(logging.INFO)
-        file_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        file_handler.setFormatter(file_formatter)
+        # File handler for ALL logs
+        file_handler_all = logging.FileHandler(log_all, mode="a", encoding="utf-8")
+        file_handler_all.setLevel(logging.INFO)
+        file_handler_all.setFormatter(logging.Formatter(log_format))
+
+        # File handler for INFO logs with "[INFO]"
+        file_handler_info = logging.FileHandler(log_info, mode="a", encoding="utf-8")
+        file_handler_info.setLevel(logging.INFO)
+        file_handler_info.setFormatter(logging.Formatter(log_format))
+        file_handler_info.addFilter(InfoOnlyFilter())  # Only log messages containing "[INFO]"
 
         # Add handlers
         logger.addHandler(console_handler)
-        logger.addHandler(file_handler)
+        logger.addHandler(file_handler_all)
+        logger.addHandler(file_handler_info)
 
     return logger
-
-
 
 def call_fine_tune(config_yaml_path: str, accelerate_config_path: str, logger: logging.Logger):
     """
@@ -134,15 +141,31 @@ def main():
     config = load_config(config_path)
     ft_config = load_config(args.ft_config)
 
-    logger = setup_logger(config['run_name'], log_file=f"logs/Self_Correct_STaR_{config['run_name']}.log")
 
-    # create a path to save models
-    star_dir = os.path.join(config['cache_dir'], 'Self_Correct_STaR')
-    model_checkpoint_dir = os.path.join(star_dir, config['run_name'])
-    data_dir = os.path.join(model_checkpoint_dir, 'data')
+    # Ensure all log directories exist
+    os.makedirs("logs", exist_ok=True)
+    os.makedirs("logs/detailed", exist_ok=True)
+    os.makedirs("logs/general", exist_ok=True)
 
-    # Recursively create all directories if they don't exist
-    os.makedirs(data_dir, exist_ok=True)
+    logger = setup_logger(
+        config['run_name'], 
+        log_all=f"logs/detailed/Self_Correct_STaR_{config['run_name']}.log",
+        log_info=f"logs/general/Self_Correct_STaR_{config['run_name']}.log"
+    )
+
+    # Define the base directory for all runs
+    stasc_dir = os.path.join(config['cache_dir'], 'STaSC')
+    os.makedirs(stasc_dir, exist_ok=True)  # Ensure the main STaSC directory exists
+
+    # Define the directory for the specific run
+    run_dir = os.path.join(stasc_dir, config['run_name'])
+    os.makedirs(run_dir, exist_ok=True)  # Ensure the run directory exists
+
+    # Create iteration directories (iter_0, iter_1, ...)
+    iteration_dirs = [os.path.join(run_dir, f"iter_{i}") for i in range(config['num_star_iterations'] + 1)]
+    for iter_dir in iteration_dirs:
+        os.makedirs(iter_dir, exist_ok=True)  # Ensure iteration directories exist
+
 
 
     # start from initial model
@@ -153,8 +176,8 @@ def main():
     # Generate initial answers with initial model if need so
     if not config['initial_answer_with_new_model']:
         
-        initial_ans_dataset_path = f"{data_dir}/data_initial"
-        updated_config_path = "configs/temp_self_corr_STaR_config.yaml"
+        initial_ans_dataset_path = os.path.join(run_dir, f"initial_data")  # Get current iteration dir
+        updated_config_path = f"configs/temp_self_corr_STaR_config_{config['run_name']}.yaml"
         call_vllm_generation(
             config_path=args.config,
             generation_model_path=generation_model_path,
@@ -172,10 +195,15 @@ def main():
 
     # Outer loop: for n in 1...N
     for iteration in range(config['num_star_iterations']+1):
-        logger.info(f"[INFO] Starting iteration {iteration + 1}/{config['num_star_iterations']}")
+        logger.info(f"[INFO] Starting iteration {iteration}/{config['num_star_iterations']}")
 
         # Create name for new dataset
-        ft_dataset_path = f"{data_dir}/data_{iteration}"
+      #  ft_dataset_path = f"{data_dir}/data_{iteration}"
+
+        iter_dir = os.path.join(run_dir, f"iter_{iteration}")  # Get current iteration dir
+        
+        # Define model and data paths for the iteration
+        ft_dataset_path = os.path.join(iter_dir, 'data')
 
         # Call vllm
         call_vllm_generation(
@@ -193,7 +221,7 @@ def main():
 
 
         # name for future model and modified configs
-        generation_model_path = f"{model_checkpoint_dir}_{iteration}"
+        generation_model_path = os.path.join(iter_dir, 'model')
         ft_config["data"]["dataset_name"] = ft_dataset_path
         ft_config["training"]["output_dir"] = generation_model_path
         ft_config['training']['run_name'] = f"{config['run_name']}_{iteration}"
