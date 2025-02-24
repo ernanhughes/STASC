@@ -1,5 +1,5 @@
 model:
-  model_name_or_path: "VityaVitalich/Llama3.1-8b-instruct"
+  model_name_or_path: "<model_name>"
   tokenizer_name: null
   cache_dir: "/home/data/v.moskvoretskii/cache/"
   trust_remote_code: true
@@ -19,11 +19,11 @@ data:
 
 training:
   output_dir: "./my-finetuned-llama-fsdp" # STaR overwrites it
-  learning_rate: 1.0e-5
+  learning_rate: 7.0e-6
   num_train_epochs: 1
-  per_device_train_batch_size: 2
-  per_device_eval_batch_size: 2
-  gradient_accumulation_steps: 1
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 4
   gradient_checkpointing: false
   max_steps: -1
   save_strategy: "no"
