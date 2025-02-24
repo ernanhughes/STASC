@@ -1,10 +1,11 @@
 
 # Model Configuration
-model_path: 'microsoft/Phi-3-mini-4k-instruct' # "Qwen/Qwen2.5-1.5B-Instruct"
+model_path: "Qwen/Qwen2.5-0.5B-Instruct" #'microsoft/Phi-3-mini-4k-instruct' # "Qwen/Qwen2.5-1.5B-Instruct"
 cache_dir: "/home/data/v.moskvoretskii/cache/"
-gpu_memory_utilization: 0.97        # GPU memory utilization (0.0 to 1.0)
-enforce_eager: True                # Whether to enforce eager execution
-max_model_len: 12000                # Maximum model length
+gpu_memory_utilization: 0.92        # GPU memory utilization (0.0 to 1.0)
+enforce_eager: False               # Whether to enforce eager execution
+max_model_len: 4096                # Maximum model length
+random_seed: 42
 
 # Dataset Configuration
 data_path: "data/datasets/s_nq"
@@ -12,18 +13,18 @@ id_col: "question_id"                        # Unique identifier column in the d
 question_col: "question_text"            # Column containing the question text
 gold_col: "reference"
 
-num_star_iterations: 10
-run_name: "phi__3_5_T_T_T_8batch_1epoch"
+num_star_iterations: 2
+run_name: "test_random"
 initial_answer_with_new_model: True
 only_better_correction: True
 train_from_initial_model: True
 
 # Generation Configuration
 few_shot_dir: "few_shots"            # Directory containing few-shot JSON files
-number_output_initial_generations: 3         
-number_output_corrections: 5
+number_output_initial_generations: 1         
+number_output_corrections: 1
 
 # Sampling Parameters
-temperature: 0.6                     # Sampling temperature
+temperature: 0.8                    # Sampling temperature
 top_p: 0.9                           # Top-p (nucleus) sampling
 max_tokens: 256                      # Maximum number of tokens to generate
