@@ -192,7 +192,8 @@ def main():
         gpu_memory_utilization=config['gpu_memory_utilization'],
         enforce_eager=config['enforce_eager'],
         max_model_len=config['max_model_len'],
-        disable_log_stats=True,  # Disables logging statistics,
+        disable_log_stats=True,  # Disables logging statistics
+        seed=config['random_seed']
         #disable_log_requests=True,  # Disables logging requests
     )
     # Sampling parameters
@@ -200,13 +201,14 @@ def main():
         temperature=config['temperature'],
         top_p=config['top_p'],
         max_tokens=config['max_tokens'],
-        n=1
+        n=1,
+        seed=config['random_seed'],
     )
 
     # if generating with initial model and now generating initial answers
     if (not config['initial_answer_with_new_model']) and (args.initial_generation):
 
-        print(f"[INFO] Starting generation of initial answers at {iteration + 1}/{config['num_star_iterations']}")
+        print(f"[INFO] Starting generation of initial answers at {iteration}/{config['num_star_iterations']}")
         sampling_params.n = config['number_output_initial_generations']
         train_data = perform_generation(
             data=train_data,
@@ -243,7 +245,7 @@ def main():
     # if generating with initial model and now generating corrections
     if (not config['initial_answer_with_new_model']) and (not args.initial_generation):
 
-        print(f"[INFO] Starting generation of corrections at {iteration + 1}/{config['num_star_iterations']}")
+        print(f"[INFO] Starting generation of corrections at {iteration}/{config['num_star_iterations']}")
 
         sampling_params.n = config['number_output_corrections']
         train_data = perform_generation(
@@ -287,7 +289,7 @@ def main():
 
     # if generating with latest model both initial answers and corrections
 
-    print(f"[INFO] Starting generation of initial answers at {iteration + 1}/{config['num_star_iterations']}")
+    print(f"[INFO] Starting generation of initial answers at {iteration}/{config['num_star_iterations']}")
 
     sampling_params.n = config['number_output_initial_generations']
     train_data = perform_generation(
@@ -314,7 +316,7 @@ def main():
     print(f'[INFO] Initial Train Accuracy {train_acc}')
     print(f'[INFO] Initial Test Accuracy {test_acc}')
 
-    print(f"[INFO] Starting generation of corrections at {iteration + 1}/{config['num_star_iterations']}")
+    print(f"[INFO] Starting generation of corrections at {iteration}/{config['num_star_iterations']}")
 
     sampling_params.n = config['number_output_corrections']
     train_data = perform_generation(
