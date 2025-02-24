@@ -1,4 +1,6 @@
+*.pdf
 data/
+logs/
 __pycache__
 datasets/
 cache/
