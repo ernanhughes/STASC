@@ -13,6 +13,7 @@ from typing import Optional, Union, List
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
+    AutoConfig,
     Trainer,
     TrainingArguments,
     DataCollatorForSeq2Seq,
@@ -163,6 +164,7 @@ def run_train(
     # 2) Load model
     print(f"[INFO] Loading Model at {model_args.model_name_or_path}")
 
+    config = AutoConfig.from_pretrained(model_args.model_name_or_path)
     model = AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -223,7 +225,7 @@ def run_train(
         )
     elif "messages" in train_cols:
         encode_function = lambda ex: encode_with_messages_format_chat_template(
-            ex, tokenizer
+            ex, tokenizer, config.architectures[0]
         )
     else:
         raise ValueError(

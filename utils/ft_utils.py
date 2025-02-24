@@ -212,7 +212,7 @@ def encode_with_messages_format(example, tokenizer, max_seq_length):
         'attention_mask': attention_mask.flatten(),
     }
 
-def encode_with_messages_format_chat_template(example, tokenizer):
+def encode_with_messages_format_chat_template(example, tokenizer, architecture):
     '''
     Here we assume each example has a 'messages' field Each message is a dict with 'role' and 'content' fields.
     We concatenate all messages with the roles as delimiters and tokenize them together.
@@ -230,11 +230,11 @@ def encode_with_messages_format_chat_template(example, tokenizer):
         return_tensors='pt'
     ).squeeze(0)
 
-    if 'qwen' in tokenizer.name_or_path.lower():
+    if 'qwen' in architecture.lower():
         model_name = 'qwen'
         special_token = 151644
         # qwen special token is <im_start>, however it also appends assistant and \n
-    if 'phi' in tokenizer.name_or_path.lower():
+    if 'phi' in architecture.lower():
         model_name = 'phi'
         # phi special token is <assistant>
         special_token = 32001
