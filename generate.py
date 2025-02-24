@@ -11,8 +11,8 @@ from functools import partial
 from vllm import LLM, SamplingParams
 
 # Local imports
-from prompt_schemas import prompt_mapper, load_few_shot_prompts
-from generation_utils import generate_for_dataset, store_generation_results, load_config, extract_parameters
+from prompts.prompt_schemas import prompt_mapper, load_few_shot_prompts
+from utils.generation_utils import generate_for_dataset, store_generation_results, load_config, extract_parameters
 
 
 def main():
