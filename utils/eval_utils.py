@@ -9,7 +9,7 @@ import regex
 import unicodedata
 from tqdm import tqdm
 from nltk.corpus import stopwords
-
+from typing import List
 
 def read_json(path):
     qa_data = []
@@ -80,6 +80,9 @@ def has_answer(answers, text, match_type="string"):
     - answers: a list of candidate answers
     - text: str
     """
+
+    assert isinstance(answers, list)
+    assert isinstance(text, str)
 
     class Tokens(object):
         """A class to represent a list of tokenized text."""
@@ -274,6 +277,10 @@ def has_answer(answers, text, match_type="string"):
 
 
 def EM_compute(answer_list, prediction):
+
+    assert isinstance(answer_list, list)
+    assert isinstance(prediction, str)
+
     return max(
         [
             int(_normalize_answer(prediction) == _normalize_answer(ground_truth))
@@ -283,6 +290,10 @@ def EM_compute(answer_list, prediction):
 
 
 def F1_compute(answers, pred):
+
+    assert isinstance(answers, list)
+    assert isinstance(pred, str)
+
     def get_tokens(s):
         if not s:
             return []
@@ -306,3 +317,67 @@ def F1_compute(answers, pred):
         return f1
 
     return max([compute_f1(x, pred) for x in answers])
+
+
+def split_rationale_and_final_answer(generated_text: str, answer_marker: str = "Final Answer:"):
+    """
+    Splits a STaR-style generation into two parts:
+      1) The rationale (everything after 'Step-by-step reasoning:' until the answer marker)
+      2) The final answer (everything after the answer marker)
+
+    The search for the answer marker (and the rationale marker) is performed in a case-insensitive manner.
+    """
+    rationale_marker = "Step-by-step reasoning:"
+    text = generated_text.replace("\r", "")
+    
+    # Convert to lower-case for case-insensitive search.
+    lower_text = text.lower()
+    rationale_marker_lower = rationale_marker.lower()
+    answer_marker_lower = answer_marker.lower()
+    
+    rationale = ""
+    final_ans = ""
+    
+    # Find indices using the lower-case text.
+    rationale_start_idx = lower_text.find(rationale_marker_lower)
+    answer_start_idx = lower_text.find(answer_marker_lower)
+    
+    if rationale_start_idx != -1:
+        rationale_start = rationale_start_idx + len(rationale_marker)
+        if answer_start_idx != -1 and answer_start_idx > rationale_start:
+            rationale = text[rationale_start:answer_start_idx].strip()
+        else:
+            rationale = text[rationale_start:].strip()
+    if answer_start_idx != -1:
+        answer_start = answer_start_idx + len(answer_marker)
+        final_ans = text[answer_start:].strip()
+    
+    return rationale, final_ans
+
+
+reward_functions = {
+    'in_acc': has_answer,
+    'f1': F1_compute,
+    'em': EM_compute
+}
+class RewardEvaluator:
+    def __init__(self, config):
+        """
+        mode: A string specifying the evaluation mode.
+              'default' uses has_answer as-is.
+              'final' extracts the final answer from the generated text.
+              Other modes can be added.
+        config: Additional configuration parameters.
+        """
+        self.config = config
+        self.mode = self.config['evaluator_mode']
+        self.reward_function = reward_functions[self.config['evaluator_function']]
+
+    def __call__(self, ground_truth: List, model_answer: str):
+        if self.mode == 'default':
+            return self.reward_function(ground_truth, model_answer)
+        elif self.mode == 'final':
+            _, final_ans = split_rationale_and_final_answer(model_answer, self.config['evaluator_answer_marker'])        
+            return self.reward_function(ground_truth, final_ans)
+        else:
+            raise ValueError(f'Unknown mode {self.mode}')
