@@ -1,4 +1,5 @@
 *.pdf
+temp/
 data/
 logs/
 __pycache__
