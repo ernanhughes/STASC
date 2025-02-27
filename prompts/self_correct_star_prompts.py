@@ -37,7 +37,7 @@ def star_correction_initial_generation_prompt(
 
     # 3) The user question itself
     question_text = sample.get(question_col, "")
-    user_question = f"Question:\n{question_text}\n\nReason step by step very shortly, then conclude with the answer."
+    user_question = f"Question:\n{question_text}\n\nReason step by step very shortly, then conclude with the answer. Strictly follow format Step-by-step reasoning: and Final Answer:"
 
     # 4) Build the message sequence
     messages = compose_chat_messages(
@@ -74,9 +74,10 @@ def star_correction_prompt(
     # 2) High-level instructions
     instructions = (
         "Below is the question and the initial answer. "
-        "Generate a correction to the initial answer if it is incorrect"
+        "Generate a correction to the initial answer if it is incorrect. "
         "Disregard the information you already have, look for other options. "
         "Do not use the information that does not match your criteria."
+        "Think about your correction step-by-step and output answer in following format:\n"
         "Step-by-step reasoning:\n"
         "Final Answer:\n"
     )
@@ -89,7 +90,7 @@ def star_correction_prompt(
         user_question = (
             f"Question:\n{question_text}\n\n"
             f"Initial Answer: {initial_answer}\n\n"
-            "Write a correction if the initial answer is incorrect."
+            "Write a correction if the initial answer is incorrect with Step-by-step reasoning: and Final Answer:."
         )
 
         # 4) Build the message sequence
