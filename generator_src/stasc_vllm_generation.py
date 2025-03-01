@@ -14,7 +14,6 @@ from datasets import Dataset, DatasetDict
 from functools import partial
 from vllm import LLM, SamplingParams
 from utils.generation_utils import generate_for_dataset, store_generation_results, load_config, extract_parameters
-from prompts.self_correct_star_prompts import star_correction_initial_generation_prompt, star_correction_prompt 
 from prompts.prompt_schemas import load_few_shot_prompts
 from utils.eval_utils import RewardEvaluator
 from utils.utils import KM, flatten_predictions
@@ -23,6 +22,8 @@ import yaml
 import subprocess
 import torch
 import logging
+from prompts import get_prompt_builder
+
 
 def collect_correction_stats(
     dataset,
@@ -91,6 +92,7 @@ def collect_correction_stats(
 def collect_improving_corrections(
     dataset,
     reward_function,
+    prompt_builder,
     question_col="question",
     reference_col="reference",
     # Initial Answer column
@@ -102,26 +104,6 @@ def collect_improving_corrections(
     strict_improvement=True,
     *kwargs,
 ):
-
-    system_prompt = (
-        "You are a helpful reasoning assistant. "
-        "Please reason through the question step by step before giving a final answer."
-    )
-
-    instructions = (
-        "Generate a short chain-of-thought rationale, and then provide the final answer.\n"
-        "Step-by-step reasoning:\n"
-        "Final Answer:\n"
-    )
-    correction_prompt = (
-        "Below is the question and the initial answer. "
-        "Generate a correction to the initial answer if it is incorrect"
-        "Disregard the information you already have, look for other options. "
-        "Do not use the information that does not match your criteria."
-        "Think about your correction step-by-step and output answer in following format:\n"
-        "Step-by-step reasoning:\n"
-        "Final Answer:\n"
-    )
 
     # Prepare lists for final flattened data
     new_ids = []
@@ -157,17 +139,8 @@ def collect_improving_corrections(
                     new_answers.append([init_answer])
                     new_corrections.append([correction])
 
-                    user_question = f"Question:\n{question}\n\nReason step by step, then conclude with the answer."
 
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": instructions},
-                        {"role": "user", "content": user_question},
-                        {"role": "user", "content": init_answer},
-                        {"role": "user", "content": correction_prompt},
-                        {"role": "assistant", "content": correction}
-
-                    ]
+                    messages = prompt_builder.build_correction_messages_with_final_answer(question, init_answer, correction)
                     new_messages.append(messages)
 
 
@@ -237,7 +210,7 @@ def branch_initial_generation(config, model, train_data, test_data, init_prompt_
     print(f"[INFO] Initial Test Accuracy at step {iteration}: {KM(new_test, target_col='star_correction_initial_generation', gt_col=config['gold_col'], evaluator=reward_function)}")
     return new_train, new_test
 
-def branch_correction_generation(config, model, train_data, test_data, corr_prompt_func, sampling_params, iteration, ft_dataset_path, reward_function):
+def branch_correction_generation(config, model, train_data, test_data, corr_prompt_func, sampling_params, iteration, ft_dataset_path, reward_function, prompt_builder):
     new_train, new_test = run_generation_phase(
         train_data, test_data, model, corr_prompt_func,
         output_col=f'star_correction_{iteration}',
@@ -258,7 +231,8 @@ def branch_correction_generation(config, model, train_data, test_data, corr_prom
         id_col=config['id_col'],
         output_path=ft_dataset_path,
         strict_improvement=config['only_better_correction'],
-        reward_function=reward_function
+        reward_function=reward_function,
+        prompt_builder=prompt_builder
     )
     stats_train = collect_correction_stats(
         dataset=new_train,
@@ -278,15 +252,15 @@ def branch_correction_generation(config, model, train_data, test_data, corr_prom
     )
     print(
         f"[INFO] Train Correction Statistics at step {iteration}:\n"
-        f"       - Correct → Incorrect: {stats_train['correct_to_incorrect']:.2f}%\n"
-        f"       - Correct → Correct: {stats_train['correct_to_correct']:.2f}%\n"
-        f"       - Incorrect → Correct: {stats_train['incorrect_to_correct']:.2f}%"
+        f"[INFO]       - Correct → Incorrect: {stats_train['correct_to_incorrect']:.2f}%\n"
+        f"[INFO]       - Correct → Correct: {stats_train['correct_to_correct']:.2f}%\n"
+        f"[INFO]       - Incorrect → Correct: {stats_train['incorrect_to_correct']:.2f}%"
     )
     print(
         f"[INFO] Test Correction Statistics at step {iteration}:\n"
-        f"       - Correct → Incorrect: {stats_test['correct_to_incorrect']:.2f}%\n"
-        f"       - Correct → Correct: {stats_test['correct_to_correct']:.2f}%\n"
-        f"       - Incorrect → Correct: {stats_test['incorrect_to_correct']:.2f}%"
+        f"[INFO]       - Correct → Incorrect: {stats_test['correct_to_incorrect']:.2f}%\n"
+        f"[INFO]       - Correct → Correct: {stats_test['correct_to_correct']:.2f}%\n"
+        f"[INFO]       - Incorrect → Correct: {stats_test['incorrect_to_correct']:.2f}%"
     )
     new_test.save_to_disk(f"{ft_dataset_path}_test")
 
@@ -309,27 +283,27 @@ def main():
 
 
     tokenizer = AutoTokenizer.from_pretrained(config['model_path'], cache_dir=config['cache_dir'])
+    prompt_builder = get_prompt_builder(config['task_type'])
     reward_function = RewardEvaluator(config)
 
 
-    star_correction_initial_generation_few_shot = load_few_shot_prompts(config['few_shot_dir'], 'star_correction_initial_generation')
-    star_correction_few_shot = load_few_shot_prompts(config['few_shot_dir'], 'star_correction')
+    initial_generation_few_shot = load_few_shot_prompts(config['few_shot_dir'], f"{config['task_type']}_initial")
+    correction_few_shot = load_few_shot_prompts(config['few_shot_dir'], f"{config['task_type']}_correction")
     
-
 
     # Prompt functions
     initial_generation_prompt_func = partial(
-        star_correction_initial_generation_prompt,
+        prompt_builder.build_initial_generation_prompt,
         tokenizer=tokenizer,
         question_col=config['question_col'],
-        few_shot_prompts=star_correction_initial_generation_few_shot,
+        few_shot_prompts=initial_generation_few_shot,
     )
 
     correction_prompt_func = partial(
-        star_correction_prompt,
+        prompt_builder.build_correction_prompt,
         tokenizer=tokenizer,
         question_col=config['question_col'],
-        few_shot_prompts=star_correction_few_shot,
+        few_shot_prompts=correction_few_shot,
         initial_answer_col='star_correction_initial_generation'
     )
 
@@ -375,7 +349,7 @@ def main():
             print(f'[INFO] Saving initial generations to {args.ft_dataset_path}')
         else:
             branch_correction_generation(config, model, train_data, test_data, correction_prompt_func, sampling_params, iteration, args.ft_dataset_path,
-            reward_function=reward_function)
+            reward_function=reward_function, prompt_builder=prompt_builder)
     else:
         new_train, new_test = branch_initial_generation(
                 config=config, 
@@ -389,7 +363,7 @@ def main():
                 reward_function=reward_function
                 )
         branch_correction_generation(config, model, new_train, new_test, correction_prompt_func, sampling_params, iteration, args.ft_dataset_path,
-        reward_function=reward_function)
+        reward_function=reward_function, prompt_builder=prompt_builder)
 
 
 if __name__ == '__main__':
