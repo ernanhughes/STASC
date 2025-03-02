@@ -1,7 +1,9 @@
 from typing import List
 from utils.qa_grader import has_answer, EM_compute, F1_compute
 from utils.math_grader import grade_answer
+from utils.qwen_math_parser import extract_answer
 import warnings
+import re
 
 
 reward_functions = {
@@ -44,7 +46,8 @@ def split_rationale_and_final_answer(generated_text: str, answer_marker: str = "
         answer_start = answer_start_idx + len(answer_marker)
         final_ans = text[answer_start:].strip()
     
-    return rationale, final_ans
+    #return rationale, final_ans
+    return final_ans
 
 
 class RewardEvaluator:
@@ -59,6 +62,7 @@ class RewardEvaluator:
         self.config = config
         self.mode = self.config['evaluator_mode']
         self.reward_function = reward_functions[self.config['evaluator_function']]
+        self.extractor = split_rationale_and_final_answer if self.config['task_type'] == 'qa' else extract_answer
 
         if (self.config['evaluator_function'] == 'math_acc') and (self.config['evaluator_mode'] != 'final'):
             warnings.warn(f"Reward Function is `Math Acc` but Evaluator Mode is not `Final`. Setting to `Final`")
@@ -69,7 +73,7 @@ class RewardEvaluator:
         if self.mode == 'default':
             return self.reward_function(ground_truth, model_answer)
         elif self.mode == 'final':
-            _, final_ans = split_rationale_and_final_answer(model_answer, self.config['evaluator_answer_marker'])        
+            final_ans = self.extractor(generated_text=model_answer, answer_marker=self.config['evaluator_answer_marker'])        
             return self.reward_function(ground_truth, final_ans)
         else:
             raise ValueError(f'Unknown mode {self.mode}')

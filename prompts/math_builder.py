@@ -19,25 +19,42 @@ class ScoreMathPromptBuilder(BasePromptBuilder):
     It inherits from BasePromptBuilder, using more robust method names.
     """
 
-    initial_instructions = (
-        "You are a math expert. When you respond, respond only with the Solution of the final Problem, thinking step by step."
-        " At the end of the Solution, when you give your final answer, write it in the form"
-        ' \"Final Answer: The final answer is $answer$\"'
-    )
+    ## SCORE Prompts
 
-    # The instructions for correction
+    # initial_instructions = (
+    #     "You are a math expert. When you respond, respond only with the Solution of the final Problem, thinking step by step."
+    #     " At the end of the Solution, when you give your final answer, write it in the form"
+    #     ' \"Final Answer: The final answer is $answer$\"'
+    # )
+
+    # # The instructions for correction
+    # correction_instructions = (
+    #     "There might be an error in the solution above because of lack of understanding of the question."
+    #     " Please correct the error, if any, and rewrite the solution. Only output the final solution!"
+    #     ' At the end of the Solution, when you give your final answer, write it in the form'
+    #     ' \"Final Answer: The final answer is $answer$.\"'
+    # )
+
+    # init_system_prompt = None
+
+    ## Qwen2.5-Math-CoT Prompts
+
+    initial_instructions = None
+
+    # # The instructions for correction
     correction_instructions = (
         "There might be an error in the solution above because of lack of understanding of the question."
-        " Please correct the error, if any, and rewrite the solution. Only output the final solution!"
-        ' At the end of the Solution, when you give your final answer, write it in the form'
-        ' \"Final Answer: The final answer is $answer$.\"'
+        " Please correct the error, if any, and rewrite the solution. Put your final answer within \\boxed{{}}"
     )
 
-    system_prompt = None
+    init_system_prompt = "Please reason step by step, and put your final answer within \\boxed{{}}"
 
     def _create_user_question(self, question_text: str):
+        # SCORE type
+       # return f"Problem:\n{question_text}\n\nSolution:"
 
-        return f"Problem:\n{question_text}\n\nSolution:"
+       # QWEN2.5-math type
+        return f"{question_text}\n"
 
     def build_initial_generation_prompt(
         self,
@@ -58,7 +75,7 @@ class ScoreMathPromptBuilder(BasePromptBuilder):
 
         # Build the message sequence
         messages = compose_chat_messages(
-            system_prompt=self.system_prompt,
+            system_prompt=self.init_system_prompt,
             instructions=self.initial_instructions,
             user_question=user_question,
             few_shot_prompts=few_shot_prompts
@@ -92,11 +109,15 @@ class ScoreMathPromptBuilder(BasePromptBuilder):
         all_correction_prompts = []
         for init_ans in initial_answers:
             messages = [
-                {"role": "user", "content": self.initial_instructions},
+                # score type
+             #   {"role": "user", "content": self.initial_instructions},
+            # qwen2.5 type
+                {"role": "system", "content": self.init_system_prompt},
                 {"role": "user", "content": user_question},
                 {"role": "assistant", "content": init_ans},
                 {"role": "user", "content": self.correction_instructions},
             ]
+
 
             # Convert messages to final text
             final_prompt = tokenizer.apply_chat_template(
@@ -121,7 +142,7 @@ class ScoreMathPromptBuilder(BasePromptBuilder):
         as the assistant's last response.
         Returns a list of message dicts.
         """
-        user_question = self._create_user_question(question_text)
+        user_question = self._create_user_question(question)
 
         messages = [
             {"role": "user", "content": self.initial_instructions},
