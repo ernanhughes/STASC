@@ -64,12 +64,14 @@ class SCoRETrainer(Trainer):
 
     def __init__(
         self,
-        config: RLOOConfig,  # or a new SCoREConfig if you prefer
+        config: RLOOConfig,
+        algo_config,
         processing_class: Optional[
             Union[PreTrainedTokenizerBase, BaseImageProcessor, FeatureExtractionMixin, ProcessorMixin]
         ],
         policy: nn.Module,
         ref_policy: nn.Module,
+        prompt_builder,
         reward_model: Union[nn.Module, Callable[[list[str]], list[float]]],
         train_dataset: Dataset,
         data_collator: Optional[DataCollatorWithPadding] = None,
@@ -89,6 +91,7 @@ class SCoRETrainer(Trainer):
 
         self.args = config  # For TRL, a config derived from RLOOConfig or similar
         args = config
+        self.algo_config = algo_config
         self.processing_class = processing_class
         self.policy = policy
         self.ref_policy = ref_policy
@@ -97,6 +100,7 @@ class SCoRETrainer(Trainer):
         self.eval_dataset = eval_dataset
         self.optimizer, self.lr_scheduler = optimizers
         self.optimizer_cls_and_kwargs = None  # used by HF Trainer if re-creating optimizers
+        self.prompt_builder = prompt_builder
 
         # If no collator provided, create a default one
         if data_collator is None:
@@ -303,7 +307,14 @@ class SCoRETrainer(Trainer):
             # ------------------------
             # 2) Generate CORRECTION
             # ------------------------
-            corr_inputs = init_outputs  # [prompt + init], shape: [B, some_seq_len]
+            init_answer_text = self.processing_class.batch_decode(init_answers, skip_special_tokens=True)
+            corr_inputs = build_correction_inputs_for_batch(
+                data, 
+                init_answer_text,
+                self.processing_class,
+                self.prompt_builder,
+                question_col=self.algo_config['question_col'],
+            )
             with torch.no_grad():
                 with unwrap_model_for_generation(
                     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
@@ -319,28 +330,23 @@ class SCoRETrainer(Trainer):
             corr_len = corr_outputs.shape[1] - corr_inputs.shape[1]
             corr_tokens = corr_outputs[:, -corr_len:]
 
-            # For reward:
-            # We'll feed the entire final sequence (prompt+init+correction) to RM or partial if needed
-            full_seq = corr_outputs
 
             with torch.no_grad():
-                if isinstance(self.reward_model, nn.Module):
-                    # get_reward (like in RLOO) often returns (loss, reward, dict)
-                    # or you might do a forward pass. Adjust to your code:
-                    _, reward_vals, _ = get_reward(
-                        self.reward_model,
-                        full_seq,
-                        self.processing_class.pad_token_id,
-                        context_len,  # or the length of queries if your RM only needs the "answer part"
-                    )
-                else:
-                    # If your reward model is a python function that takes strings
-                    texts = self.processing_class.batch_decode(corr_tokens, skip_special_tokens=True)
-                    reward_vals = torch.tensor(
-                        self.reward_model(texts),
-                        dtype=torch.float,
-                        device=device
-                    )
+                # If your reward model is a python function that takes strings
+                corr_output_text = self.processing_class.batch_decode(corr_tokens, skip_special_tokens=True)
+
+                reward_vals = [self.reward_model(
+                        model_answer=corr_output,
+                        ground_truth=reference
+                        ) 
+                        for (corr_output, reference) in zip(corr_output_text, batch[self.algo_config['gold_col']]
+                        )
+                        ]
+                reward_vals = torch.tensor(
+                    reward_vals,
+                    dtype=torch.float,
+                    device=device
+                )
                 reward_vals = reward_vals.reshape(-1)
 
             # final scalar reward
@@ -433,50 +439,53 @@ class SCoRETrainer(Trainer):
         Utility function to sample model completions on `eval_dataloader` and log them.
         Copied from RLOOTrainer's style, but simplified.
         """
-        args = self.args
-        if self.eval_dataloader is None:
-            return
 
-        generation_config = GenerationConfig(
-            max_new_tokens=args.response_length,
-            temperature=(0.01 + 1e-7),
-            top_k=0.0,
-            top_p=1.0,
-            do_sample=True,
-        )
+        raise NotImplementedError('Not Yet')
 
-        table = defaultdict(list)
-        with unwrap_model_for_generation(
-            self.model, self.accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-        ) as unwrapped_model:
-            for batch in self.eval_dataloader:
-                query = batch["input_ids"]
-                with torch.no_grad():
-                    context_length = query.shape[1]
-                    query_response, _ = batch_generation(
-                        unwrapped_model,
-                        query,
-                        query.shape[0],
-                        self.processing_class.pad_token_id,
-                        generation_config,
-                    )
-                    response = query_response[:, context_length:]
-                    table["query"].extend(
-                        gather_object(self.processing_class.batch_decode(query, skip_special_tokens=True))
-                    )
-                    table["model response"].extend(
-                        gather_object(self.processing_class.batch_decode(response, skip_special_tokens=True))
-                    )
+        # args = self.args
+        # if self.eval_dataloader is None:
+        #     return
 
-                if sampling:
-                    # Just do one batch if sampling
-                    break
+        # generation_config = GenerationConfig(
+        #     max_new_tokens=args.response_length,
+        #     temperature=(0.01 + 1e-7),
+        #     top_k=0.0,
+        #     top_p=1.0,
+        #     do_sample=True,
+        # )
 
-        df = pd.DataFrame(table)
-        if self.accelerator.is_main_process:
-            print_rich_table(df.iloc[0 : 0 + 5])
-            # If using W&B or Comet, you can log the table
-            # ...
+        # table = defaultdict(list)
+        # with unwrap_model_for_generation(
+        #     self.model, self.accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
+        # ) as unwrapped_model:
+        #     for batch in self.eval_dataloader:
+        #         query = batch["input_ids"]
+        #         with torch.no_grad():
+        #             context_length = query.shape[1]
+        #             query_response, _ = batch_generation(
+        #                 unwrapped_model,
+        #                 query,
+        #                 query.shape[0],
+        #                 self.processing_class.pad_token_id,
+        #                 generation_config,
+        #             )
+        #             response = query_response[:, context_length:]
+        #             table["query"].extend(
+        #                 gather_object(self.processing_class.batch_decode(query, skip_special_tokens=True))
+        #             )
+        #             table["model response"].extend(
+        #                 gather_object(self.processing_class.batch_decode(response, skip_special_tokens=True))
+        #             )
+
+        #         if sampling:
+        #             # Just do one batch if sampling
+        #             break
+
+        # df = pd.DataFrame(table)
+        # if self.accelerator.is_main_process:
+        #     print_rich_table(df.iloc[0 : 0 + 5])
+        #     # If using W&B or Comet, you can log the table
+        #     # ...
     
     def create_model_card(
         self,
@@ -485,15 +494,81 @@ class SCoRETrainer(Trainer):
         tags: Union[str, list[str], None] = None,
     ):
         """
-        Same logic as RLOOTrainer create_model_card, adapted.
+        Creates a draft of a model card using the information available to the `Trainer`.
+
+        Args:
+            model_name (`str` or `None`, *optional*, defaults to `None`):
+                Name of the model.
+            dataset_name (`str` or `None`, *optional*, defaults to `None`):
+                Name of the dataset used for training.
+            tags (`str`, `list[str]` or `None`, *optional*, defaults to `None`):
+                Tags to be associated with the model card.
         """
         if not self.is_world_process_zero():
             return
 
-        # Implementation same as RLOO version ...
-        # ...
-        pass
+        if hasattr(self.model.config, "_name_or_path") and not os.path.isdir(self.model.config._name_or_path):
+            base_model = self.model.config._name_or_path
+        else:
+            base_model = None
 
-    # If you want to replicate the RLOO ._save_checkpoint, etc. do it similarly
-    # ...
+        tags = tags or []
+        if isinstance(tags, str):
+            tags = [tags]
+
+        if hasattr(self.model.config, "unsloth_version"):
+            tags.append("unsloth")
+
+        model_card = generate_model_card(
+            base_model=base_model,
+            model_name=model_name,
+            hub_model_id=self.hub_model_id,
+            dataset_name=dataset_name,
+            tags=tags,
+            wandb_url=wandb.run.get_url() if is_wandb_available() and wandb.run is not None else None,
+            comet_url=get_comet_experiment_url(),
+            trainer_name="SCoRE",
+        )
+
+        model_card.save(os.path.join(self.args.output_dir, "README.md"))
+
+
+
+def build_correction_inputs_for_batch(
+    batch,
+    init_answer_text,
+    tokenizer,
+    prompt_builder,
+    question_col: str = "question",
+    initial_answer_col: str = "initial_answer",
+):
+    # We will store the final "correction input" for each row
+    batch_correction_inputs = []
+
+    for i, init_ans_text in enumerate(init_answer_texts):
+        question_text = batch[question_col][i]
+
+        # Build a 'sample' dict as your prompt_builder expects:
+        sample_for_prompt = {
+            question_col: question_text,
+            initial_answer_col: [init_ans_text],  # your builder uses a list for initial answers
+        }
+
+        # Now get the final correction prompt(s). Typically there's 1 prompt
+        # in this scenario, but build_correction_prompt returns a list.
+        corr_inputs = prompt_builder.build_correction_prompt(
+            sample=sample_for_prompt,
+            tokenizer=tokenizer,
+            question_col=question_col,
+            initial_answer_col=initial_answer_col,
+            tokenize=True
+        )
+        # Since we used only 1 initial answer, corr_prompts[0] is the final text
+        corr_inputs = corr_inputs[0]
+
+        batch_correction_inputs.append({'input_ids': corr_inputs})
+
+
+    collated_corrections = DataCollatorWithPadding(tokenizer)(batch_correction_inputs)
+    return collated_corrections['input_ids']
 
