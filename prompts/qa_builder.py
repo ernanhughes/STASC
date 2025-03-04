@@ -57,6 +57,7 @@ class QAPromptBuilder(BasePromptBuilder):
         tokenizer,
         question_col="question",
         few_shot_prompts=None,
+        tokenize=False,
         *args,
         **kwargs
     ):
@@ -76,7 +77,7 @@ class QAPromptBuilder(BasePromptBuilder):
         # Return merged prompt
         return tokenizer.apply_chat_template(
             messages,
-            tokenize=False,
+            tokenize=tokenize,
             add_generation_prompt=True
         )
 
@@ -87,6 +88,7 @@ class QAPromptBuilder(BasePromptBuilder):
         question_col="question",
         initial_answer_col="inital_answer",
         few_shot_prompts=None,
+        tokenize=False,
         *args,
         **kwargs
     ):
@@ -107,7 +109,7 @@ class QAPromptBuilder(BasePromptBuilder):
             # Convert messages to final text
             final_prompt = tokenizer.apply_chat_template(
                 messages,
-                tokenize=False,
+                tokenize=tokenize,
                 add_generation_prompt=True
             )
             all_correction_prompts.append(final_prompt)
