@@ -13,7 +13,7 @@ import datasets
 from datasets import Dataset, DatasetDict
 from functools import partial
 from vllm import LLM, SamplingParams
-from utils.generation_utils import generate_for_dataset, store_generation_results, load_config, extract_parameters
+from utils.generation_utils import generate_for_dataset, store_generation_results, load_config
 from prompts.prompt_schemas import load_few_shot_prompts
 from utils.eval_utils import RewardEvaluator
 from utils.utils import KM, flatten_predictions
