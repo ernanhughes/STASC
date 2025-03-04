@@ -290,6 +290,8 @@ class SCoRETrainer(Trainer):
                         self.processing_class.pad_token_id,
                         self.init_generation_config,
                     )
+
+                    init_logits
                 # We store only the portion beyond the prompt length
                 context_len = queries.shape[1]
                 init_answers = init_outputs[:, context_len:]
@@ -299,6 +301,7 @@ class SCoRETrainer(Trainer):
                 # logp(ref) for init
                 ref_outputs = forward(self.ref_policy, init_outputs, self.processing_class.pad_token_id)
                 ref_logits = ref_outputs.logits[:, context_len - 1 : -1]
+                ref_logits /= args.temperature + 1e-7
                 ref_logprob = selective_log_softmax(ref_logits, init_answers)
 
                 # Sum across tokens for the KL
@@ -360,11 +363,10 @@ class SCoRETrainer(Trainer):
             # We can do it in micro-batches if needed. For simplicity, do it in one pass:
             # But we still use `accelerator.accumulate(model)` if gradient_accum_steps>1.
 
-            micro_batch_size = args.per_device_train_batch_size
             # or if you want to chunk further
-            for micro_start in range(0, queries.shape[0], micro_batch_size):
+            for micro_start in range(0, args.local_batch_size, args.per_device_train_batch_size):
                 with accelerator.accumulate(self.model):
-                    micro_end = micro_start + micro_batch_size
+                    micro_end = micro_start + args.per_device_train_batch_size
                     mb_idx = slice(micro_start, micro_end)
                     mb_corr_outputs = corr_outputs[mb_idx]
                     mb_corr_tokens = corr_tokens[mb_idx]
@@ -378,6 +380,7 @@ class SCoRETrainer(Trainer):
                     # but we keep it consistent with your code:
                     offset = mb_corr_outputs.shape[1] - mb_corr_tokens.shape[1] - 1
                     logits_corr = out.logits[:, offset:-1, :]
+                    logits_corr /= args.temperature + 1e-7
                     logprob_corr = selective_log_softmax(logits_corr, mb_corr_tokens)
 
                     # sum across time
