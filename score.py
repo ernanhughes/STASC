@@ -88,14 +88,15 @@ def main():
     ref_model = deepcopy(model)
 
 
+    os.environ["WANDB_PROJECT"] = config['wandb_project_name']
+    os.environ["WANDB_DIR"] = config['cache_dir']
+    os.environ["WANDB_CACHE_DIR"] = config['cache_dir']
     
     score_config = RLOOConfig(
         output_dir='test_rl_dir/',
         exp_name=config['run_name'],
         seed=config['random_seed'],
         report_to='wandb',
-       # tracker_kwargs={"wandb": {"name": config['run_name'], 'dir': config['cache_dir']}},
-       # tracker_project_name='SCoRE',
       #  early_stopping=False,
        # model_name=global_config.model_name_or_path,
         per_device_train_batch_size=config['per_device_train_batch_size'],
@@ -104,7 +105,8 @@ def main():
         gradient_accumulation_steps=config['gradient_accumulation_steps'],
         response_length=config['max_tokens'],
         temperature=config['temperature'],
-        num_total_batches=2,
+        total_episodes=2,
+        num_sample_generations=0
 
     )
 

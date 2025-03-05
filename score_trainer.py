@@ -24,6 +24,8 @@ from transformers import (
     TrainerCallback,
     TrainerControl,
 )
+from transformers.integrations import get_reporting_integration_callbacks
+from transformers.trainer import DEFAULT_CALLBACKS, DEFAULT_PROGRESS_CALLBACK
 from transformers.trainer_callback import CallbackHandler, ExportableState, PrinterCallback
 
 # Assume these come from TRL’s code (as in RLOOTrainer):
@@ -45,6 +47,8 @@ from trl.trainer.rloo_config import RLOOConfig  # or create a new SCoREConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url, log_table_to_comet_experiment
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+
+# TODO: Add Scheduler, add validation
 
 INVALID_LOGPROB = 1.0
 
@@ -159,7 +163,7 @@ class SCoRETrainer(Trainer):
         # name runs etc.
         time_tensor = torch.tensor(int(time.time()), device=accelerator.device)
         time_int = broadcast(time_tensor, 0).item()
-        args.run_name = f"{args.exp_name}__{args.seed}__{time_int}"
+        args.run_name = f"{args.exp_name}"
 
         # Seeds, directories, etc.
         self.local_seed = args.seed + accelerator.process_index * 100003
@@ -174,7 +178,8 @@ class SCoRETrainer(Trainer):
             drop_last=True,
         )
         self.model = policy  # HF Trainer expects self.model
-        self.model, self.optimizer, self.dataloader = accelerator.prepare(self.model, self.optimizer, self.dataloader)
+        self.model = accelerator.prepare(self.model)
+        self.optimizer, self.dataloader = accelerator.prepare(self.optimizer, self.dataloader)
         # reset local seed
         torch.manual_seed(self.local_seed)
 
@@ -212,13 +217,14 @@ class SCoRETrainer(Trainer):
             self.create_optimizer_and_scheduler(num_training_steps=args.num_total_batches)
 
         # Setup HF Trainer state + callbacks
-        default_callbacks = [PrinterCallback]  # or similar
-        if callbacks is not None:
-            default_callbacks += callbacks
-        self.callbacks = default_callbacks
+        default_callbacks = DEFAULT_CALLBACKS + get_reporting_integration_callbacks(self.args.report_to)
+        self.callbacks = default_callbacks if callbacks is None else default_callbacks + callbacks
         self.callback_handler = CallbackHandler(
             self.callbacks, self.model, self.processing_class, self.optimizer, self.lr_scheduler
         )
+        self.add_callback(PrinterCallback if self.args.disable_tqdm else DEFAULT_PROGRESS_CALLBACK)
+
+
         self.control = TrainerControl()
         self.state = OnlineTrainerState(
             is_local_process_zero=self.is_local_process_zero(),
@@ -314,28 +320,29 @@ class SCoRETrainer(Trainer):
             # ------------------------
             # 2) Generate CORRECTION
             # ------------------------
-            init_answer_text = self.processing_class.batch_decode(init_answers, skip_special_tokens=True)
+            init_answer_texts = self.processing_class.batch_decode(init_answers, skip_special_tokens=True)
             corr_inputs = build_correction_inputs_for_batch(
                 data, 
-                init_answer_text,
+                init_answer_texts,
                 self.processing_class,
                 self.prompt_builder,
                 question_col=self.algo_config['question_col'],
-            )
+            ).to(device)
             with torch.no_grad():
-                with unwrap_model_for_generation(
-                    self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-                ) as unwrapped_model:
+                # with unwrap_model_for_generation(
+                #     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
+                # ) as unwrapped_model:
+                with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
                     corr_outputs, corr_logits = batch_generation(
-                        unwrapped_model,
+                        self.model,
                         corr_inputs,
                         args.local_rollout_forward_batch_size,
                         self.processing_class.pad_token_id,
                         self.corr_generation_config,
                     )
             # The correction is the portion after the entire corr_inputs length
-            corr_len = corr_outputs.shape[1] - corr_inputs.shape[1]
-            corr_tokens = corr_outputs[:, -corr_len:]
+            corr_context_len = corr_inputs.shape[1]
+            corr_tokens = corr_outputs[:, corr_context_len:]
 
 
             with torch.no_grad():
@@ -346,7 +353,7 @@ class SCoRETrainer(Trainer):
                         model_answer=corr_output,
                         ground_truth=reference
                         ) 
-                        for (corr_output, reference) in zip(corr_output_text, batch[self.algo_config['gold_col']]
+                        for (corr_output, reference) in zip(corr_output_text, data[self.algo_config['gold_col']]
                         )
                         ]
                 reward_vals = torch.tensor(
@@ -396,9 +403,7 @@ class SCoRETrainer(Trainer):
                     accelerator.backward(loss)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-
-            # Step LR
-            self.lr_scheduler.step()
+                    
 
             # ------------------------
             # Logging / stats
@@ -419,9 +424,10 @@ class SCoRETrainer(Trainer):
 
             self.state.global_step += 1
             self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-            if self.control.should_save:
-                self._save_checkpoint(self.model, trial=None)
-                self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+            # if self.control.should_save:
+            #     #with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+            #     self._save_checkpoint(self.model, trial=None)
+            #     self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
             # Optionally sample completions or do evaluations
             if (
@@ -436,7 +442,8 @@ class SCoRETrainer(Trainer):
 
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
         if self.control.should_save:
-            self._save_checkpoint(self.model, trial=None, metrics=None)
+            #with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+            self._save_checkpoint(self.model, trial=None)
             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
         print("SCoRE training completed!")
@@ -543,7 +550,7 @@ class SCoRETrainer(Trainer):
 
 def build_correction_inputs_for_batch(
     batch,
-    init_answer_text,
+    init_answer_texts,
     tokenizer,
     prompt_builder,
     question_col: str = "question",
