@@ -13,9 +13,10 @@ from utils.generation_utils import load_config
 from score_trainer import SCoRETrainer
 from copy import deepcopy
 from trl import RLOOConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, DataCollatorWithPadding
+import torch
 
-
-def custom_collate_fn(features, config):
+def custom_collate_fn(features, config, collator):
     # 1) Extract the text columns you want to keep
     #    but do NOT pass them to the default collator
     text_cols = [config['gold_col'], config['question_col']]
@@ -79,7 +80,7 @@ def main():
 
     reward_function = RewardEvaluator(config)
 
-    model = AutoModelForCausalLMW.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         config['model_path'],
         cache_dir=config['cache_dir'],
         torch_dtype=torch.bfloat16
@@ -87,21 +88,24 @@ def main():
     ref_model = deepcopy(model)
 
 
-
+    
     score_config = RLOOConfig(
+        output_dir='test_rl_dir/',
         exp_name=config['run_name'],
         seed=config['random_seed'],
-        log_with='wandb',
-        tracker_kwargs={"wandb": {"name": config['run_name'], 'dir': config['cache_dir']}},
-        tracker_project_name='SCoRE',
-        early_stopping=False,
+        report_to='wandb',
+       # tracker_kwargs={"wandb": {"name": config['run_name'], 'dir': config['cache_dir']}},
+       # tracker_project_name='SCoRE',
+      #  early_stopping=False,
        # model_name=global_config.model_name_or_path,
         per_device_train_batch_size=config['per_device_train_batch_size'],
         local_batch_size=config['local_batch_size'],
         local_rollout_forward_batch_size=config['per_device_train_batch_size'],
         gradient_accumulation_steps=config['gradient_accumulation_steps'],
         response_length=config['max_tokens'],
-        temperature=config['temperature']
+        temperature=config['temperature'],
+        num_total_batches=2,
+
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
@@ -114,9 +118,10 @@ def main():
         policy=model, 
         ref_policy=ref_model, 
         reward_model=reward_function, 
-        train_dataset=dataset["train"],
-        data_collator=custom_collate_fn,
-        optimizers=(optimizer, scheduler)
+        train_dataset=ds["train"],
+        data_collator=partial(custom_collate_fn, config=config, collator=DataCollatorWithPadding(tokenizer)),
+        optimizers=(optimizer, scheduler),
+        prompt_builder=prompt_builder
     )
 
     trainer.train()

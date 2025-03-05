@@ -43,6 +43,8 @@ from trl.trainer.utils import (
 )
 from trl.trainer.rloo_config import RLOOConfig  # or create a new SCoREConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url, log_table_to_comet_experiment
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
 
 INVALID_LOGPROB = 1.0
 
@@ -277,27 +279,29 @@ class SCoRETrainer(Trainer):
             # 1) Generate INITIAL
             # ------------------------
             with torch.no_grad():
-                queries = data["input_ids"].to(device)
+                queries = data["input_ids"].to(device).long()
+
                 # Possibly also pass "attention_mask" or other keys
                 # Generate the initial answer
-                with unwrap_model_for_generation(
-                    self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-                ) as unwrapped_model:
+                # with unwrap_model_for_generation(
+                #     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
+                # ) as unwrapped_model:
+                with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+
                     init_outputs, init_logits = batch_generation(
-                        unwrapped_model,
+                        self.model,
                         queries,
                         args.local_rollout_forward_batch_size,
                         self.processing_class.pad_token_id,
                         self.init_generation_config,
                     )
 
-                    init_logits
                 # We store only the portion beyond the prompt length
                 context_len = queries.shape[1]
                 init_answers = init_outputs[:, context_len:]
 
                 # logp(policy) for init
-                init_logprob = selective_log_softmax(init_logits[:, context_len - 1 : -1], init_answers)
+                init_logprob = selective_log_softmax(init_logits, init_answers)
                 # logp(ref) for init
                 ref_outputs = forward(self.ref_policy, init_outputs, self.processing_class.pad_token_id)
                 ref_logits = ref_outputs.logits[:, context_len - 1 : -1]
