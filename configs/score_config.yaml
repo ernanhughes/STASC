@@ -3,6 +3,7 @@
 model_path: "Qwen/Qwen2.5-Math-1.5B-Instruct" #'microsoft/Phi-3-mini-4k-instruct' # "Qwen/Qwen2.5-1.5B-Instruct" # "Qwen/Qwen2.5-Math-1.5B-Instruct"
 cache_dir: "/home/data/v.moskvoretskii/cache/"
 random_seed: 42
+wandb_project_name: 'SCoRE'
 
 # Dataset Configuration 
 task_type: "math" # "qa" or "math"
@@ -28,8 +29,8 @@ number_output_initial_generations: 1
 temperature: 0.7                    # Sampling temperature
 max_tokens: 10                      # Maximum number of tokens to generate
 
-local_batch_size: 2
-per_device_train_batch_size: 2
+local_batch_size: 1
+per_device_train_batch_size: 1
 gradient_accumulation_steps: 1
 learning_rate: 5.0e-5
 
