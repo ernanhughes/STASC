@@ -128,8 +128,8 @@ class SCoRETrainer(Trainer):
             #top_k=0,
             top_p=0.8,
             do_sample=True,
-           # pad_token_id=None,
-           # eos_token_id=None,
+            pad_token_id=None,
+            eos_token_id=None,
         )
         self.corr_generation_config = GenerationConfig(
             max_new_tokens=args.response_length,  # or separate param, e.g. correction_length
@@ -137,8 +137,8 @@ class SCoRETrainer(Trainer):
             #top_k=0,
             top_p=0.8,
             do_sample=True,
-          #  pad_token_id=None,
-          #  eos_token_id=None,
+            pad_token_id=None,
+            eos_token_id=None,
         )
 
         # Construct the dataloader
@@ -147,8 +147,9 @@ class SCoRETrainer(Trainer):
             args.total_episodes = int(args.num_train_epochs * self.train_dataset_len)
 
         # Build accelerator
-        accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps)
+        accelerator = Accelerator()
         self.accelerator = accelerator
+        self.accelerator.state.deepspeed_plugin.deepspeed_config['gradient_accumulation_steps'] = self.algo_config['gradient_accumulation_steps']
         args.world_size = accelerator.num_processes
 
         # This part is from RLOO: computing local_batch_size, micro_batch_size, etc.
@@ -180,9 +181,9 @@ class SCoRETrainer(Trainer):
             drop_last=True,
         )
         self.model = policy  # HF Trainer expects self.model
-        self.model = accelerator.prepare(self.model)
-        self.optimizer, self.dataloader = accelerator.prepare(self.optimizer, self.dataloader)
+        self.model, self.optimizer, self.dataloader = accelerator.prepare(self.model, self.optimizer, self.dataloader)
         self.lr_scheduler = get_cosine_schedule_with_warmup(self.optimizer, num_warmup_steps=self.algo_config['num_warmup_steps'], num_training_steps=args.num_total_batches)
+
 
         # reset local seed
         torch.manual_seed(self.local_seed)
@@ -293,18 +294,12 @@ class SCoRETrainer(Trainer):
 
                 # Possibly also pass "attention_mask" or other keys
                 # Generate the initial answer
-                # with unwrap_model_for_generation(
-                #     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-                # ) as unwrapped_model:
-
-                print(device, self.processing_class.batch_decode(data['input_ids'].cpu(), skip_special_tokens=False))
-                torch.cuda.synchronize()
-                torch.distributed.barrier()
-                with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+                with unwrap_model_for_generation(
+                    self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
+                ) as unwrapped_model:
                     
-                    embeddings = deepcopy(self.model.model.embed_tokens.weight)
                     init_outputs, init_logits = batch_generation(
-                        self.model,
+                        unwrapped_model,
                         queries,
                         args.local_rollout_forward_batch_size,
                         self.processing_class.pad_token_id,
@@ -323,20 +318,21 @@ class SCoRETrainer(Trainer):
                     ref_logits /= args.temperature + 1e-7
                     ref_logprob = selective_log_softmax(ref_logits, init_answers)
 
-                    #print(init_logprob)
-                    #print(ref_logprob)
                     # Sum across tokens for the KL
+                    mask = (init_answers == self.processing_class.pad_token_id)
+                    init_logprob = init_logprob.masked_fill_(mask, 0)
+                    ref_logprob = ref_logprob.masked_fill_(mask, 0)
                     kl_init = (init_logprob - ref_logprob).sum(dim=1)
 
-                # del ref_logprob, ref_logits, init_logprob, init_logits, init_outputs, queries
-                # torch.cuda.empty_cache()
+                    del ref_logprob, ref_logits, init_logprob, init_logits, init_outputs, queries
+                    torch.cuda.empty_cache()
 
                 # ------------------------
                 # 2) Generate CORRECTION
                 # ------------------------
-                    init_answer_texts = self.processing_class.batch_decode(init_answers, skip_special_tokens=True)
-                    print('===init answers===')
-                    print(device, init_answer_texts)
+                    init_answer_texts = self.processing_class.batch_decode(init_answers, skip_special_tokens=False)
+                    # print('===init answers===')
+                    # print(device, init_answer_texts)
                     corr_inputs = build_correction_inputs_for_batch(
                         data, 
                         init_answer_texts,
@@ -348,45 +344,25 @@ class SCoRETrainer(Trainer):
                 #print('===correction inputs===')
                 #print(device, self.processing_class.batch_decode(corr_inputs.cpu(), skip_special_tokens=False))
                 
-                    with torch.no_grad():
-                        # with unwrap_model_for_generation(
-                        #     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-                        # ) as unwrapped_model:
-                        #with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
-
-
                        
-                        corr_outputs, corr_logits = batch_generation(
-                            self.model,
-                            corr_inputs,
-                            args.local_rollout_forward_batch_size,
-                            self.processing_class.pad_token_id,
-                            self.init_generation_config,
-                        )
-                        # print(corr_inputs)
-                        # pad_token_id = self.processing_class.pad_token_id
-                        # attention_mask = corr_inputs != pad_token_id
-                        # input_ids = torch.masked_fill(corr_inputs, ~attention_mask, 0)
-                        # print(input_ids)
-                        # output = self.model.generate(
-                        #     corr_inputs,
-                        #     #attention_mask=attention_mask,
-                        #     # generation_config=self.init_generation_config,
-                        #     # return_dict_in_generate=True,
-                        #     # output_scores=True,
-                        # )
+                    corr_outputs, corr_logits = batch_generation(
+                        unwrapped_model,
+                        corr_inputs,
+                        args.local_rollout_forward_batch_size,
+                        self.processing_class.pad_token_id,
+                        self.init_generation_config,
+                    )
             
-            print('===correction inputs===')
-            print(device, self.processing_class.batch_decode(corr_outputs, skip_special_tokens=False))
+            # print('===correction inputs===')
+            # print(device, self.processing_class.batch_decode(corr_outputs, skip_special_tokens=False))
             
-           # print(device, self.processing_class.batch_decode(output.sequences.cpu(), skip_special_tokens=False))
             # The correction is the portion after the entire corr_inputs length
             corr_context_len = corr_inputs.shape[1]
             corr_tokens = corr_outputs[:, corr_context_len:]
 
-          #  del corr_logits
-          #  torch.cuda.empty_cache()
-          #  gc.collect()
+            del corr_logits
+            torch.cuda.empty_cache()
+            gc.collect()
 
             with torch.no_grad():
                 # If your reward model is a python function that takes strings
@@ -406,12 +382,12 @@ class SCoRETrainer(Trainer):
                 )
                 reward_vals = reward_vals.reshape(-1)
 
-                print(reward_vals)
+                #print(reward_vals)
 
             # final scalar reward
             final_reward = reward_vals - args.kl_coef * kl_init  # rename "kl_coef" or "beta" as needed
 
-            print(kl_init.float())
+            #print(kl_init.float())
 
             # ------------------------
             # 3) REINFORCE on correction
@@ -421,9 +397,6 @@ class SCoRETrainer(Trainer):
             # We can do it in micro-batches if needed. For simplicity, do it in one pass:
             # But we still use `accelerator.accumulate(model)` if gradient_accum_steps>1.
 
-            # 🛠 **Synchronize All GPUs Before Next Forward Pass**
-            torch.cuda.synchronize()
-            torch.distributed.barrier()
 
             # or if you want to chunk further
             for micro_start in range(0, args.local_batch_size, args.per_device_train_batch_size):
@@ -452,26 +425,12 @@ class SCoRETrainer(Trainer):
 
                     # Backprop
                     accelerator.backward(loss)
-
-                    for name, param in self.model.named_parameters():
-                        if param.requires_grad:
-                            print(f"Before optimizer.step() | {name}: Mean={param.data.mean().item()}, Std={param.data.std().item()}")
-
                     self.optimizer.step()
 
-                    for name, param in self.model.named_parameters():
-                        if param.requires_grad:
-                            print(f"After optimizer.step() | {name}: Mean={param.data.mean().item()}, Std={param.data.std().item()}")
-                    self.optimizer.zero_grad()
-                
-                # 🛠 **Synchronize All GPUs Before Next Forward Pass**
-                torch.cuda.synchronize()
-                torch.distributed.barrier()
 
                 self.lr_scheduler.step()
 
-           # del corr_outputs, corr_tokens, final_reward, out, offset, logits_corr, logprob_corr, sum_lp, final_reward, kl_init
-           # torch.cuda.empty_cache()
+
 
             # ------------------------
             # Logging / stats
@@ -479,19 +438,20 @@ class SCoRETrainer(Trainer):
             with torch.no_grad():
                 # e.g. gather stats for logging
                 mean_kl_init = accelerator.gather_for_metrics(kl_init).mean().item()
-                print(accelerator.gather_for_metrics(kl_init))
                 mean_reward = accelerator.gather_for_metrics(reward_vals).mean().item()
-                print(accelerator.gather_for_metrics(reward_vals))
                 metrics = {}
                 metrics["score/kl_init"] = mean_kl_init
                 metrics["score/reward"] = mean_reward
-                print(accelerator.gather_for_metrics(final_reward))
                 metrics["score/final_reward"] = accelerator.gather_for_metrics(final_reward).mean().item()
                 metrics["loss"] = loss.item()
                 metrics["episode"] = self.state.episode
                 metrics["step"] = step_idx
                 # log
                 self.log(metrics)
+
+            del corr_outputs, corr_tokens, out, offset, logits_corr, logprob_corr, sum_lp, final_reward, kl_init
+            torch.cuda.empty_cache()
+            gc.collect()
 
             self.state.global_step += 1
             self.control = self.callback_handler.on_step_end(args, self.state, self.control)
