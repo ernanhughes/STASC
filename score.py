@@ -10,7 +10,7 @@ from prompts import get_prompt_builder
 from prompts.prompt_schemas import load_few_shot_prompts
 from utils.eval_utils import RewardEvaluator
 from utils.generation_utils import load_config
-from score_trainer import SCoRETrainer
+from score_trainer_ddp import SCoRETrainer
 from copy import deepcopy
 from trl import RLOOConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, DataCollatorWithPadding
@@ -97,21 +97,18 @@ def main():
         exp_name=config['run_name'],
         seed=config['random_seed'],
         report_to='wandb',
-      #  early_stopping=False,
-       # model_name=global_config.model_name_or_path,
         per_device_train_batch_size=config['per_device_train_batch_size'],
-        local_batch_size=config['local_batch_size'],
         local_rollout_forward_batch_size=config['per_device_train_batch_size'],
         gradient_accumulation_steps=config['gradient_accumulation_steps'],
         response_length=config['max_tokens'],
         temperature=config['temperature'],
-        total_episodes=2,
-        num_sample_generations=0
+        total_episodes=config['total_episodes'],
+        num_sample_generations=0,
+        kl_coef=config['kl_coef']
 
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
-    scheduler = None
 
     trainer = SCoRETrainer(
         config=score_config,
@@ -122,8 +119,8 @@ def main():
         reward_model=reward_function, 
         train_dataset=ds["train"],
         data_collator=partial(custom_collate_fn, config=config, collator=DataCollatorWithPadding(tokenizer)),
-        optimizers=(optimizer, scheduler),
-        prompt_builder=prompt_builder
+        optimizers=(optimizer, None),
+        prompt_builder=prompt_builder,
     )
 
     trainer.train()

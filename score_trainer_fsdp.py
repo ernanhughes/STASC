@@ -23,6 +23,7 @@ from transformers import (
     Trainer,
     TrainerCallback,
     TrainerControl,
+    get_cosine_schedule_with_warmup
 )
 from transformers.integrations import get_reporting_integration_callbacks
 from transformers.trainer import DEFAULT_CALLBACKS, DEFAULT_PROGRESS_CALLBACK
@@ -46,6 +47,7 @@ from trl.trainer.utils import (
 from trl.trainer.rloo_config import RLOOConfig  # or create a new SCoREConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url, log_table_to_comet_experiment
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from copy import deepcopy
 
 
 # TODO: Add Scheduler, add validation
@@ -123,20 +125,20 @@ class SCoRETrainer(Trainer):
         self.init_generation_config = GenerationConfig(
             max_new_tokens=args.response_length,  # or some separate param, e.g. args.initial_answer_length
             temperature=args.temperature,
-            top_k=0,
-            top_p=1.0,
+            #top_k=0,
+            top_p=0.8,
             do_sample=True,
-            pad_token_id=None,
-            eos_token_id=None,
+           # pad_token_id=None,
+           # eos_token_id=None,
         )
         self.corr_generation_config = GenerationConfig(
             max_new_tokens=args.response_length,  # or separate param, e.g. correction_length
             temperature=args.temperature,
-            top_k=0,
-            top_p=1.0,
+            #top_k=0,
+            top_p=0.8,
             do_sample=True,
-            pad_token_id=None,
-            eos_token_id=None,
+          #  pad_token_id=None,
+          #  eos_token_id=None,
         )
 
         # Construct the dataloader
@@ -166,7 +168,7 @@ class SCoRETrainer(Trainer):
         args.run_name = f"{args.exp_name}"
 
         # Seeds, directories, etc.
-        self.local_seed = args.seed + accelerator.process_index * 100003
+        self.local_seed = args.seed
         torch.manual_seed(args.seed)
 
         # Prepare data loader
@@ -180,6 +182,8 @@ class SCoRETrainer(Trainer):
         self.model = policy  # HF Trainer expects self.model
         self.model = accelerator.prepare(self.model)
         self.optimizer, self.dataloader = accelerator.prepare(self.optimizer, self.dataloader)
+        self.lr_scheduler = get_cosine_schedule_with_warmup(self.optimizer, num_warmup_steps=self.algo_config['num_warmup_steps'], num_training_steps=args.num_total_batches)
+
         # reset local seed
         torch.manual_seed(self.local_seed)
 
@@ -289,66 +293,105 @@ class SCoRETrainer(Trainer):
 
                 # Possibly also pass "attention_mask" or other keys
                 # Generate the initial answer
-                with unwrap_model_for_generation(
-                    self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-                ) as unwrapped_model:
-                #with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+                # with unwrap_model_for_generation(
+                #     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
+                # ) as unwrapped_model:
 
+                print(device, self.processing_class.batch_decode(data['input_ids'].cpu(), skip_special_tokens=False))
+                torch.cuda.synchronize()
+                torch.distributed.barrier()
+                with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+                    
+                    embeddings = deepcopy(self.model.model.embed_tokens.weight)
                     init_outputs, init_logits = batch_generation(
-                        unwrapped_model,
+                        self.model,
                         queries,
                         args.local_rollout_forward_batch_size,
                         self.processing_class.pad_token_id,
                         self.init_generation_config,
                     )
 
-                # We store only the portion beyond the prompt length
-                context_len = queries.shape[1]
-                init_answers = init_outputs[:, context_len:]
+                    # We store only the portion beyond the prompt length
+                    context_len = queries.shape[1]
+                    init_answers = init_outputs[:, context_len:]
 
-                # logp(policy) for init
-                init_logprob = selective_log_softmax(init_logits, init_answers)
-                # logp(ref) for init
-                ref_outputs = forward(self.ref_policy, init_outputs, self.processing_class.pad_token_id)
-                ref_logits = ref_outputs.logits[:, context_len - 1 : -1]
-                ref_logits /= args.temperature + 1e-7
-                ref_logprob = selective_log_softmax(ref_logits, init_answers)
+                    # logp(policy) for init
+                    init_logprob = selective_log_softmax(init_logits, init_answers)
+                    # logp(ref) for init
+                    ref_outputs = forward(self.ref_policy, init_outputs, self.processing_class.pad_token_id)
+                    ref_logits = ref_outputs.logits[:, context_len - 1 : -1]
+                    ref_logits /= args.temperature + 1e-7
+                    ref_logprob = selective_log_softmax(ref_logits, init_answers)
 
-                # Sum across tokens for the KL
-                kl_init = (init_logprob - ref_logprob).sum(dim=1)
+                    #print(init_logprob)
+                    #print(ref_logprob)
+                    # Sum across tokens for the KL
+                    kl_init = (init_logprob - ref_logprob).sum(dim=1)
 
-            # ------------------------
-            # 2) Generate CORRECTION
-            # ------------------------
-            init_answer_texts = self.processing_class.batch_decode(init_answers, skip_special_tokens=True)
-            corr_inputs = build_correction_inputs_for_batch(
-                data, 
-                init_answer_texts,
-                self.processing_class,
-                self.prompt_builder,
-                question_col=self.algo_config['question_col'],
-            ).to(device)
-            with torch.no_grad():
-                with unwrap_model_for_generation(
-                    self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
-                ) as unwrapped_model:
-                #with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
-                    corr_outputs, corr_logits = batch_generation(
-                        unwrapped_model,
-                        corr_inputs,
-                        args.local_rollout_forward_batch_size,
-                        self.processing_class.pad_token_id,
-                        self.corr_generation_config,
-                    )
+                # del ref_logprob, ref_logits, init_logprob, init_logits, init_outputs, queries
+                # torch.cuda.empty_cache()
+
+                # ------------------------
+                # 2) Generate CORRECTION
+                # ------------------------
+                    init_answer_texts = self.processing_class.batch_decode(init_answers, skip_special_tokens=True)
+                    print('===init answers===')
+                    print(device, init_answer_texts)
+                    corr_inputs = build_correction_inputs_for_batch(
+                        data, 
+                        init_answer_texts,
+                        self.processing_class,
+                        self.prompt_builder,
+                        question_col=self.algo_config['question_col'],
+                    ).to(device)
+                
+                #print('===correction inputs===')
+                #print(device, self.processing_class.batch_decode(corr_inputs.cpu(), skip_special_tokens=False))
+                
+                    with torch.no_grad():
+                        # with unwrap_model_for_generation(
+                        #     self.model, accelerator, gather_deepspeed3_params=args.ds3_gather_for_generation
+                        # ) as unwrapped_model:
+                        #with torch.distributed.fsdp.FullyShardedDataParallel.summon_full_params(self.model):
+
+
+                       
+                        corr_outputs, corr_logits = batch_generation(
+                            self.model,
+                            corr_inputs,
+                            args.local_rollout_forward_batch_size,
+                            self.processing_class.pad_token_id,
+                            self.init_generation_config,
+                        )
+                        # print(corr_inputs)
+                        # pad_token_id = self.processing_class.pad_token_id
+                        # attention_mask = corr_inputs != pad_token_id
+                        # input_ids = torch.masked_fill(corr_inputs, ~attention_mask, 0)
+                        # print(input_ids)
+                        # output = self.model.generate(
+                        #     corr_inputs,
+                        #     #attention_mask=attention_mask,
+                        #     # generation_config=self.init_generation_config,
+                        #     # return_dict_in_generate=True,
+                        #     # output_scores=True,
+                        # )
+            
+            print('===correction inputs===')
+            print(device, self.processing_class.batch_decode(corr_outputs, skip_special_tokens=False))
+            
+           # print(device, self.processing_class.batch_decode(output.sequences.cpu(), skip_special_tokens=False))
             # The correction is the portion after the entire corr_inputs length
             corr_context_len = corr_inputs.shape[1]
             corr_tokens = corr_outputs[:, corr_context_len:]
 
+          #  del corr_logits
+          #  torch.cuda.empty_cache()
+          #  gc.collect()
 
             with torch.no_grad():
                 # If your reward model is a python function that takes strings
                 corr_output_text = self.processing_class.batch_decode(corr_tokens, skip_special_tokens=True)
-
+                
                 reward_vals = [self.reward_model(
                         model_answer=corr_output,
                         ground_truth=reference
@@ -363,8 +406,12 @@ class SCoRETrainer(Trainer):
                 )
                 reward_vals = reward_vals.reshape(-1)
 
+                print(reward_vals)
+
             # final scalar reward
             final_reward = reward_vals - args.kl_coef * kl_init  # rename "kl_coef" or "beta" as needed
+
+            print(kl_init.float())
 
             # ------------------------
             # 3) REINFORCE on correction
@@ -373,6 +420,10 @@ class SCoRETrainer(Trainer):
             # Then do loss = - final_reward * sum_{tokens}( log p_theta ).
             # We can do it in micro-batches if needed. For simplicity, do it in one pass:
             # But we still use `accelerator.accumulate(model)` if gradient_accum_steps>1.
+
+            # 🛠 **Synchronize All GPUs Before Next Forward Pass**
+            torch.cuda.synchronize()
+            torch.distributed.barrier()
 
             # or if you want to chunk further
             for micro_start in range(0, args.local_batch_size, args.per_device_train_batch_size):
@@ -401,9 +452,26 @@ class SCoRETrainer(Trainer):
 
                     # Backprop
                     accelerator.backward(loss)
+
+                    for name, param in self.model.named_parameters():
+                        if param.requires_grad:
+                            print(f"Before optimizer.step() | {name}: Mean={param.data.mean().item()}, Std={param.data.std().item()}")
+
                     self.optimizer.step()
+
+                    for name, param in self.model.named_parameters():
+                        if param.requires_grad:
+                            print(f"After optimizer.step() | {name}: Mean={param.data.mean().item()}, Std={param.data.std().item()}")
                     self.optimizer.zero_grad()
-                    
+                
+                # 🛠 **Synchronize All GPUs Before Next Forward Pass**
+                torch.cuda.synchronize()
+                torch.distributed.barrier()
+
+                self.lr_scheduler.step()
+
+           # del corr_outputs, corr_tokens, final_reward, out, offset, logits_corr, logprob_corr, sum_lp, final_reward, kl_init
+           # torch.cuda.empty_cache()
 
             # ------------------------
             # Logging / stats
@@ -411,10 +479,13 @@ class SCoRETrainer(Trainer):
             with torch.no_grad():
                 # e.g. gather stats for logging
                 mean_kl_init = accelerator.gather_for_metrics(kl_init).mean().item()
+                print(accelerator.gather_for_metrics(kl_init))
                 mean_reward = accelerator.gather_for_metrics(reward_vals).mean().item()
+                print(accelerator.gather_for_metrics(reward_vals))
                 metrics = {}
                 metrics["score/kl_init"] = mean_kl_init
                 metrics["score/reward"] = mean_reward
+                print(accelerator.gather_for_metrics(final_reward))
                 metrics["score/final_reward"] = accelerator.gather_for_metrics(final_reward).mean().item()
                 metrics["loss"] = loss.item()
                 metrics["episode"] = self.state.episode
@@ -585,3 +656,4 @@ def build_correction_inputs_for_batch(
 
     collated_corrections = DataCollatorWithPadding(tokenizer)(batch_correction_inputs)
     return collated_corrections['input_ids']
+
