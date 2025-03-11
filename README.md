@@ -1,6 +1,6 @@
 # Paper Title
 
-This repository contains code for paper ...
+This repository contains code for paper "Self-Taught Self-Correction for Small Language Models"
 
 ## 🚀 Running STaSC
 
