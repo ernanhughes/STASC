@@ -1,4 +1,4 @@
-# Paper Title
+# Self-Taught Self-Correction for Small Language Models (STaSC)
 
 This repository contains code for paper [Self-Taught Self-Correction for Small Language Models](https://arxiv.org/abs/2503.08681) from ICLR 2025 SSI-FM Workshop.
 
